@@ -1,12 +1,28 @@
 import argparse
 
 
+class ArgsWrapper(argparse.ArgumentParser):
+    def parse_args(self, *args, **kwargs):
+        opt = super().parse_args(*args, **kwargs)
+        opt = self._get_num_classes(opt)
+        return opt
+
+    def _get_num_classes(self, opt):
+        if opt.dataset == 'cifar10':
+            opt.num_classes = 10
+        elif opt.dataset == 'cifar100':
+            opt.num_classes = 100
+        else:
+            raise ValueError('Invalid dataset name')
+        return opt
+
+
 devices = ['cpu', 'cuda']
 datasets = ['cifar10', 'cifar100']
 models = ['resnet32']
 
 
-parser = argparse.ArgumentParser()
+parser = ArgsWrapper()
 parser.add_argument('--data_dir', default='data')
 parser.add_argument('--output_dir', default='output')
 parser.add_argument('--device', default='cuda', choices=devices)
