@@ -79,7 +79,7 @@ def main():
         susp_filters = json.load(f)
     cfsion_mat = evaluate(opt, model, valloader, device)
     priority = mutation_analyze(model, testloader, device, susp_filters, cfsion_mat)
-    export_object(opt, 'mutation_kill_priority.json', priority)
+    export_object(opt, f'priority_{opt.method}.json', priority)
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import random
 import json
 
 import torch
@@ -5,7 +6,7 @@ import torch.utils.data
 import scipy.integrate
 from tqdm import tqdm
 
-from dataset import load_dataloader
+from dataset import load_dataloader, load_dataset
 from model import get_device, load_model
 from arguments import parser
 from utils import *
@@ -70,9 +71,15 @@ def main():
     model = load_model(opt).to(device)
 
     if opt.metric == 'rauc':
-        with open(get_output_location(opt, 'mutation_kill_priority.json')) as f:
-            priority = json.load(f)
-        sample_order = [i for i, _ in priority]
+        if opt.method == 'random':
+            persist_rand = random.Random(2021)
+            tset = load_dataset(opt, split='test')
+            sample_order = list(range(len(tset)))
+            persist_rand.shuffle(sample_order)
+        else:
+            with open(get_output_location(opt, f'priority_{opt.method}.json')) as f:
+                priority = json.load(f)
+            sample_order = [i for i, _ in priority]
         sampler = PrioritizedSampler(sample_order)
     else:
         sampler = None
