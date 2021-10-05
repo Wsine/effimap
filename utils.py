@@ -5,11 +5,16 @@ import functools
 import hashlib
 
 
-def get_output_folder(opt):
-    folder = os.path.join(
+def get_output_location(opt, filename=None):
+    output_folder = os.path.join(
         opt.output_dir, opt.dataset, opt.model
     )
-    return folder
+    if filename is None:
+        return output_folder
+    output_file = os.path.join(
+        output_folder, filename
+    )
+    return output_file
 
 
 def guard_folder(opt, folder=None):
@@ -17,7 +22,7 @@ def guard_folder(opt, folder=None):
         folder = []
     elif isinstance(folder, str):
         folder = [folder]
-    folder.append(get_output_folder(opt))
+    folder.append(get_output_location(opt))
     for f in folder:
         if not os.path.isdir(f):
             os.makedirs(f)
