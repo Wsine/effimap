@@ -41,11 +41,12 @@ def load_dataset(opt, split):
         raise ValueError('Invalid split parameter')
 
 
-def load_dataloader(opt, split):
+def load_dataloader(opt, split, sampler=None):
     dataset = load_dataset(opt, split)
     shuffle = True if split == 'train' else False
     dataloader = torch.utils.data.DataLoader(
         dataset,  # type: ignore
+        sampler=sampler,
         batch_size=opt.batch_size, shuffle=shuffle, num_workers=2
     )
     return dataloader
