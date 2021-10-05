@@ -31,11 +31,11 @@ def load_dataset(opt, split):
         return trainset
     if split == 'val':
         _, valset = train_test_split(
-            dataset, test_size=1./2, random_state=2021, stratify=dataset.targets)
+            dataset, test_size=1./10, random_state=2021, stratify=dataset.targets)
         return valset
     elif split == 'test':
         testset, _ = train_test_split(
-            dataset, test_size=1./2, random_state=2021, stratify=dataset.targets)
+            dataset, test_size=1./10, random_state=2021, stratify=dataset.targets)
         return testset
     else:
         raise ValueError('Invalid split parameter')

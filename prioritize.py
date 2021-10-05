@@ -10,11 +10,11 @@ from utils import *
 
 
 @torch.no_grad()
-def evaluate(opt, model, dataloader, device):
+def evaluate(opt, model, valloader, device):
     model.eval()
 
     confusion_matrix = torch.zeros(opt.num_classes, opt.num_classes)
-    for inputs, targets in tqdm(dataloader, desc='Evaluate', leave=True):
+    for inputs, targets in tqdm(valloader, desc='Evaluate', leave=True):
         inputs, targets = inputs.to(device), targets.to(device)
         outputs = model(inputs)
 
@@ -26,7 +26,7 @@ def evaluate(opt, model, dataloader, device):
 
 
 @torch.no_grad()
-def mutation_analyze(model, valloader, device, susp, cfsion_mat):
+def mutation_analyze(model, testloader, device, susp, cfsion_mat):
     model.eval()
     cfsion_mat = cfsion_mat.to(device)
 
@@ -37,7 +37,7 @@ def mutation_analyze(model, valloader, device, susp, cfsion_mat):
         return __hook
 
     prioritize = []
-    for inputs, targets in tqdm(valloader, desc='Analyze'):
+    for inputs, targets in tqdm(testloader, desc='Analyze'):
         inputs, targets = inputs.to(device), targets.to(device)
         outputs = model(inputs)
         _, predicted = outputs.max(1)
@@ -73,11 +73,12 @@ def main():
     device = get_device(opt)
     model = load_model(opt).to(device)
     valloader = load_dataloader(opt, split='val')
+    testloader = load_dataloader(opt, split='test')
 
     with open(get_output_location(opt, 'susp_filters.json')) as f:
         susp_filters = json.load(f)
     cfsion_mat = evaluate(opt, model, valloader, device)
-    priority = mutation_analyze(model, valloader, device, susp_filters, cfsion_mat)
+    priority = mutation_analyze(model, testloader, device, susp_filters, cfsion_mat)
     export_object(opt, 'mutation_kill_priority.json', priority)
 
 
