@@ -20,7 +20,7 @@ class ArgsWrapper(argparse.ArgumentParser):
 devices = ['cpu', 'cuda']
 datasets = ['cifar10', 'cifar100']
 models = ['resnet32']
-methods = ['filter', 'random']
+methods = ['filter', 'random', 'gini']
 
 
 parser = ArgsWrapper()

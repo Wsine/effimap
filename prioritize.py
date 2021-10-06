@@ -1,12 +1,16 @@
 import json
 
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 
 from dataset import load_dataloader
 from model import get_device, load_model
 from arguments import parser
 from utils import *
+
+
+dispatcher = AttrDispatcher('method')
 
 
 @torch.no_grad()
@@ -25,10 +29,15 @@ def evaluate(opt, model, valloader, device):
     return confusion_matrix
 
 
+@dispatcher.register('filter')
 @torch.no_grad()
-def mutation_analyze(model, testloader, device, susp, cfsion_mat):
+def filter_mutation_analyze(opt, model, testloader, device):
     model.eval()
-    cfsion_mat = cfsion_mat.to(device)
+
+    with open(get_output_location(opt, 'susp_filters.json')) as f:
+        susp = json.load(f)
+    valloader = load_dataloader(opt, split='val')
+    cfsion_mat = evaluate(opt, model, valloader, device).to(device)
 
     def _mask_out_channel(chn):
         def __hook(module, finput, foutput):
@@ -65,6 +74,31 @@ def mutation_analyze(model, testloader, device, susp, cfsion_mat):
     return result
 
 
+@dispatcher.register('gini')
+@torch.no_grad()
+def gini_index_prioritize(opt, model, testloader, device):
+    model.eval()
+
+    def _gini_index(x):
+        x = F.softmax(x, dim=1)
+        x = x.square().sum(dim=1).mul(-1.).add(1.)
+        return x
+
+    prioritize = []
+    for inputs, targets in tqdm(testloader, desc='Prioritize'):
+        inputs, targets = inputs.to(device), targets.to(device)
+        outputs = model(inputs)
+        gini = _gini_index(outputs)
+        prioritize.append(gini.cpu())
+
+    prioritize = torch.cat(prioritize)
+    result = sorted(
+        [(i, x) for i, x in enumerate(prioritize.tolist())],
+        key=lambda z: z[1], reverse=True
+    )
+    return result
+
+
 def main():
     opt = parser.parse_args()
     print(opt)
@@ -72,13 +106,9 @@ def main():
 
     device = get_device(opt)
     model = load_model(opt).to(device)
-    valloader = load_dataloader(opt, split='val')
     testloader = load_dataloader(opt, split='test')
 
-    with open(get_output_location(opt, 'susp_filters.json')) as f:
-        susp_filters = json.load(f)
-    cfsion_mat = evaluate(opt, model, valloader, device)
-    priority = mutation_analyze(model, testloader, device, susp_filters, cfsion_mat)
+    priority = dispatcher(opt, model, testloader, device)
     export_object(opt, f'priority_{opt.method}.json', priority)
 
 
