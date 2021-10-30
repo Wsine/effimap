@@ -6,25 +6,28 @@ from sklearn.model_selection import train_test_split
 
 
 def load_dataset(opt, split):
+    train = True if split == 'train' else False
+
     if opt.dataset == 'cifar10':
         mean = (0.4914, 0.4822, 0.4465)
         std = (0.2023, 0.1994, 0.2010)
-        train_trsf = [T.RandomCrop(32, padding=4)]
+        trsf = ([T.RandomCrop(32, padding=4)] if train is True else []) \
+            + [T.ToTensor(), T.Normalize(mean, std)]  # type: ignore
+        dataset = torchvision.datasets.CIFAR10(
+            root=opt.data_dir, train=train, download=True,
+            transform=T.Compose(trsf)
+        )
+    elif opt.dataset == 'cifar100':
+        mean = (0.5071, 0.4867, 0.4408)
+        std = (0.2675, 0.2565, 0.2761)
+        trsf = ([T.RandomCrop(32, padding=4)] if train is True else []) \
+            + [T.ToTensor(), T.Normalize(mean, std)]  # type: ignore
+        dataset = torchvision.datasets.CIFAR100(
+            root=opt.data_dir, train=train, download=True,
+            transform=T.Compose(trsf)
+        )
     else:
         raise ValueError('Invalid dataset name')
-
-    train = True if split == 'train' else False
-    transformers = (
-        train_trsf if train is True else []
-    ) + [
-        T.ToTensor(),
-        T.Normalize(mean, std)
-    ]
-
-    dataset = torchvision.datasets.CIFAR10(
-        root=opt.data_dir, train=train, download=True,
-        transform=T.Compose(transformers)
-    )
 
     if split == 'train':
         trainset = dataset

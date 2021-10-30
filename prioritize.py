@@ -76,7 +76,7 @@ def filter_mutation_analyze(opt, model, testloader, device):
 
 @dispatcher.register('gini')
 @torch.no_grad()
-def gini_index_prioritize(opt, model, testloader, device):
+def gini_index_prioritize(_, model, testloader, device):
     model.eval()
 
     def _gini_index(x):
