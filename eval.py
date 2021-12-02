@@ -1,9 +1,9 @@
 import random
 import json
 
+import numpy as np
 import torch
 import torch.utils.data
-import scipy.integrate
 from tqdm import tqdm
 
 from dataset import load_dataloader, load_dataset
@@ -52,8 +52,8 @@ def evaluate(model, dataloader, device):
 
 def compute_area_under_curve(y):
     ideal_y = (list(range(y[-1])) + [y[-1]] * len(y))[:len(y)]
-    area_y = scipy.integrate.simps(y)
-    area_iy = scipy.integrate.simps(ideal_y)
+    area_y = np.trapz(y)
+    area_iy = np.trapz(ideal_y)
     ratio = 100. * area_y / area_iy
     return ratio
 
