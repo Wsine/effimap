@@ -77,14 +77,16 @@ def export_object(opt, filename, obj, **kwargs):
 
     filepath = os.path.join(dstdir, filename)
     with open(filepath, f'w{mode}') as f:
-        if mode == 'b':
+        if filename.endswith('.pkl'):
             pickle.dump(obj, f, **kwargs)
-        else:
+        elif filename.endswith('.json'):
             if 'indent' not in kwargs:
                 kwargs['indent'] = 2
             if 'ensure_ascii' not in kwargs:
                 kwargs['ensure_ascii'] = False
             json.dump(obj, f, **kwargs)
+        elif filename.endswith('.csv'):
+            obj.to_csv(f)
 
 
 # borrow from: https://stackoverflow.com/questions/31174295/

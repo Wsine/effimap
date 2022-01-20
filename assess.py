@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from tqdm import tqdm
+import pandas as pd
 
 from dataset import load_dataloader
 from model import get_device, load_model
@@ -30,7 +31,7 @@ def evaluate_accuracy(opt, model, dataloader, device):
     return acc, class_acc
 
 
-def performance_improve(opt, model, valloader, device):
+def performance_difference(opt, model, valloader, device):
     base_acc, base_c_acc = evaluate_accuracy(opt, model, valloader, device)
     print('base acc =', base_acc)
     print('base class acc =', base_c_acc)
@@ -41,23 +42,20 @@ def performance_improve(opt, model, valloader, device):
             return foutput
         return __hook
 
-    assess = { f'class{c}': {} for c in range(opt.num_classes) }
-    assess.update({'overall': {}})
+    df = pd.DataFrame(columns=['layer', 'filter_idx', 'acc'] + \
+                      [f'acc_c{c}' for c in range(opt.num_classes)])
     conv_names = [n for n, m in model.named_modules() if isinstance(m, nn.Conv2d)]
     for lname in tqdm(conv_names, desc='Modules', leave=True):
-        for k in assess.keys():
-            assess[k][lname] = []
-
         module = rgetattr(model, lname)
         for chn in tqdm(range(module.out_channels), desc='Filters', leave=False):
             handle = module.register_forward_hook(_mask_out_channel(chn))
             acc, c_acc = evaluate_accuracy(opt, model, valloader, device)
-            assess['overall'][lname].append(acc - base_acc)
-            for c in range(opt.num_classes):
-                assess[f'class{c}'][lname].append(c_acc[c] - base_c_acc[c])
+            r1 = { 'layer': lname, 'filter_idx': chn, 'acc': acc - base_acc }
+            r2 = { f'acc_c{c}': c_acc[c] - base_c_acc[c] for c in range(opt.num_classes) }
+            df = df.append({**r1, **r2}, ignore_index=True)
             handle.remove()
 
-    return assess
+    return df
 
 
 def main():
@@ -69,8 +67,8 @@ def main():
     model = load_model(opt).to(device)
     valloader = load_dataloader(opt, split='val')
 
-    result = performance_improve(opt, model, valloader, device)
-    result_name = 'filter_assess.json'
+    result = performance_difference(opt, model, valloader, device)
+    result_name = 'filter_assess.csv'
     export_object(opt, result_name, result)
 
 

@@ -9,6 +9,7 @@ torchvision = "==0.9.1"
 tqdm = "*"
 scipy = "*"
 sklearn = "*"
+pandas = "*"
 
 [dev-packages]
 
