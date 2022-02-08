@@ -86,7 +86,7 @@ def export_object(opt, filename, obj, **kwargs):
                 kwargs['ensure_ascii'] = False
             json.dump(obj, f, **kwargs)
         elif filename.endswith('.csv'):
-            obj.to_csv(f)
+            obj.to_csv(f, float_format='%.8f')
 
 
 # borrow from: https://stackoverflow.com/questions/31174295/

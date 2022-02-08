@@ -26,7 +26,7 @@ def evaluate_accuracy(opt, model, dataloader, device):
         for t, p in zip(targets, predicted):
             confusion_matrix[t.item(), p.item()] += 1
 
-    acc = 100. * correct / total
+    acc = correct / total
     class_acc = (confusion_matrix.diag() / confusion_matrix.sum(1)).tolist()
     return acc, class_acc
 
