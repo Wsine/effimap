@@ -4,6 +4,8 @@ import pickle
 import functools
 import hashlib
 
+import torch
+
 
 def get_output_location(opt, filename=None):
     output_folder = os.path.join(
@@ -72,7 +74,7 @@ def preview_object(obj):
 
 
 def export_object(opt, filename, obj, **kwargs):
-    mode = 'b' if filename.endswith('.pkl') else ''
+    mode = 'b' if filename.endswith(('.pkl', '.pt')) else ''
     dstdir = os.path.join(opt.output_dir, opt.dataset, opt.model)
 
     filepath = os.path.join(dstdir, filename)
@@ -87,6 +89,8 @@ def export_object(opt, filename, obj, **kwargs):
             json.dump(obj, f, **kwargs)
         elif filename.endswith('.csv'):
             obj.to_csv(f, float_format='%.8f')
+        elif filename.endswith('.pt'):
+            torch.save(obj, f)
 
 
 # borrow from: https://stackoverflow.com/questions/31174295/
@@ -106,13 +110,13 @@ def rgetattr(obj, attr, *args):
 #   singledispatch-based-on-value-instead-of-type#36837332
 class AttrDispatcher(object):
     def __init__(self, attr):
-        self._attr = attr
+        self.attr = attr
         self.registry = {}
 
     def __call__(self, *args, **kwargs):
         opt, *_ = args
-        assert hasattr(opt, self._attr), f"The first argument must has attribute '{self._attr}'"
-        func = self.registry[getattr(opt, self._attr)]
+        assert hasattr(opt, self.attr), f"The first argument must has attribute '{self.attr}'"
+        func = self.registry[getattr(opt, self.attr)]
         return func(*args, **kwargs)
 
     def register(self, key):

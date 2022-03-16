@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from tqdm import tqdm
 import pandas as pd
 
@@ -8,6 +9,8 @@ from model import get_device, load_model
 from arguments import parser
 from utils import *
 
+
+dispatcher = AttrDispatcher('assess')
 
 @torch.no_grad()
 def evaluate_accuracy(opt, model, dataloader, device):
@@ -31,7 +34,9 @@ def evaluate_accuracy(opt, model, dataloader, device):
     return acc, class_acc
 
 
-def performance_difference(opt, model, valloader, device):
+@dispatcher.register('perfdiff')
+def performance_difference(opt, model, device):
+    valloader = load_dataloader(opt, split='val')
     base_acc, base_c_acc = evaluate_accuracy(opt, model, valloader, device)
     print('base acc =', base_acc)
     print('base class acc =', base_c_acc)
@@ -55,20 +60,64 @@ def performance_difference(opt, model, valloader, device):
             df = df.append({**r1, **r2}, ignore_index=True)
             handle.remove()
 
-    return df
+    return df, 'filter_assess.csv'
+
+
+@dispatcher.register('bnrunning')
+@torch.no_grad()
+def bn_running_mean_std(opt, model, device):
+    def _bn_hook(module, inputs, outputs):
+        return F.batch_norm(
+            inputs[0],
+            module.freeze_running_mean, module.freeze_running_var,
+            module.weight, module.bias,
+            False,  # bn_training
+            0.0 if module.momentum is None else module.momentum,
+            module.eps
+        )
+
+    model.eval()
+    for module in model.modules():
+        if isinstance(module, nn.BatchNorm2d):
+            module.train()
+            module.freeze_running_mean = module.running_mean.clone()  # type: ignore
+            module.freeze_running_var = module.running_var.clone()  # type: ignore
+            module.register_forward_hook(_bn_hook)  # type: ignore
+
+    result = {}
+    for clx_idx in range(opt.num_classes):
+        print('Processing class {}'.format(clx_idx))
+        trainloader = load_dataloader(opt, split='train', single_class=clx_idx)
+
+        for module in model.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.reset_running_stats()
+
+        for _ in tqdm(range(opt.epochs), desc='Epoch', leave=True):
+            for inputs, targets in tqdm(trainloader, desc='BN', leave=False):
+                inputs, targets = inputs.to(device), targets.to(device)
+                _ = model(inputs)
+
+        result[f'c{clx_idx}'] = {
+            name: {
+                'running_mean': module.running_mean.cpu(),
+                'running_var': module.running_var.cpu()
+            }
+            for name, module in model.named_modules() if isinstance(module, nn.BatchNorm2d)
+        }
+
+    return result, 'bn_running_stats.pt'
 
 
 def main():
-    opt = parser.parse_args()
+    opt = parser.add_dispatch(dispatcher).parse_args()
     print(opt)
     guard_folder(opt)
 
     device = get_device(opt)
     model = load_model(opt).to(device)
-    valloader = load_dataloader(opt, split='val')
 
-    result = performance_difference(opt, model, valloader, device)
-    result_name = 'filter_assess.csv'
+    result, result_name = dispatcher(opt, model, device)
     export_object(opt, result_name, result)
 
 

@@ -5,7 +5,7 @@ import torchvision.transforms as T
 from sklearn.model_selection import train_test_split
 
 
-def load_dataset(opt, split):
+def load_dataset(opt, split, single_class=None, download=True):
     train = True if split == 'train' else False
 
     if opt.dataset == 'cifar10':
@@ -14,7 +14,7 @@ def load_dataset(opt, split):
         trsf = ([T.RandomCrop(32, padding=4)] if train is True else []) \
             + [T.ToTensor(), T.Normalize(mean, std)]  # type: ignore
         dataset = torchvision.datasets.CIFAR10(
-            root=opt.data_dir, train=train, download=True,
+            root=opt.data_dir, train=train, download=download,
             transform=T.Compose(trsf)
         )
     elif opt.dataset == 'cifar100':
@@ -23,29 +23,35 @@ def load_dataset(opt, split):
         trsf = ([T.RandomCrop(32, padding=4)] if train is True else []) \
             + [T.ToTensor(), T.Normalize(mean, std)]  # type: ignore
         dataset = torchvision.datasets.CIFAR100(
-            root=opt.data_dir, train=train, download=True,
+            root=opt.data_dir, train=train, download=download,
             transform=T.Compose(trsf)
         )
     else:
         raise ValueError('Invalid dataset name')
 
     if split == 'train':
-        trainset = dataset
-        return trainset
-    if split == 'val':
-        _, valset = train_test_split(
+        pass
+    elif split == 'val':
+        _, dataset = train_test_split(
             dataset, test_size=1./10, random_state=2021, stratify=dataset.targets)
-        return valset
     elif split == 'test':
-        testset, _ = train_test_split(
+        dataset, _ = train_test_split(
             dataset, test_size=1./10, random_state=2021, stratify=dataset.targets)
-        return testset
     else:
         raise ValueError('Invalid split parameter')
 
+    if single_class is not None:
+        clx_indices = [
+            i for i, (_, y) in enumerate(dataset)  # type: ignore
+            if y == single_class
+        ]
+        dataset = torch.utils.data.Subset(dataset, clx_indices)  # type: ignore
 
-def load_dataloader(opt, split, sampler=None):
-    dataset = load_dataset(opt, split)
+    return dataset
+
+
+def load_dataloader(opt, split, sampler=None, **kwargs):
+    dataset = load_dataset(opt, split, **kwargs)
     shuffle = True if split == 'train' else False
     dataloader = torch.utils.data.DataLoader(
         dataset,  # type: ignore
