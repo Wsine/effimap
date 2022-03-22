@@ -5,6 +5,7 @@ from tqdm import tqdm
 import pandas as pd
 import copy
 from sklearn import metrics
+import scipy.stats as st
 
 from dataset import load_dataloader
 from model import get_device, load_model
@@ -238,6 +239,60 @@ def bn_trend(opt, model, device):
     df = df.astype({'bn': int, 'actual': int})
 
     fpr, tpr, _ = metrics.roc_curve(df['actual'], df['bn'])
+    auc = metrics.auc(fpr, tpr)
+    print('validate auc for bn: {:.2f}%'.format(100. * auc))
+
+
+@dispatcher.register('bnzscores')
+@torch.no_grad()
+def bn_trend(opt, model, device):
+    model.eval()
+
+    bn_rare = {}
+    def _compute_z_score(name):
+        def __hook(module, inputs):
+            z_scores = F.batch_norm(
+                inputs[0],
+                module.running_mean, module.running_var,
+                None, None,
+                False,  # bn_training
+                0.0 if module.momentum is None else module.momentum,
+                module.eps
+            ).abs()
+            zeros = torch.zeros_like(z_scores, device=device)
+            z_scores_cut = torch.where(z_scores < 3.0, zeros, z_scores)
+            z_probs = st.norm.cdf(z_scores_cut.cpu()) - 0.5
+            bn_rare[name] = z_probs
+        return __hook
+
+    for name, module in model.named_modules():
+        if isinstance(module, nn.BatchNorm2d):
+            module.register_forward_pre_hook(_compute_z_score(name))
+
+    df = pd.DataFrame()
+    correct, total = 0, 0
+    testloader = load_dataloader(opt, split='test')
+    for inputs, targets in tqdm(testloader, desc='Validate', leave=True):
+        bn_rare.clear()
+        inputs, targets = inputs.to(device), targets.to(device)
+        outputs = model(inputs)
+        _, predicted = outputs.max(1)
+        equal = predicted.eq(targets)
+        correct += equal.sum().item()
+        total += targets.size(0)
+
+        rare_index = torch.zeros((targets.size(0),))
+        for name, module in model.named_modules():
+            if isinstance(module, nn.BatchNorm2d):
+                rare_index += bn_rare[name].sum(axis=(1, 2, 3))
+        for e, r in zip(equal, rare_index):
+            df = df.append({
+                'rare': r.item(),
+                'actual': e.item()
+            }, ignore_index=True)
+
+    df = df.astype({'rare': float, 'actual': int})
+    fpr, tpr, _ = metrics.roc_curve(df['actual'], df['rare'])
     auc = metrics.auc(fpr, tpr)
     print('validate auc for bn: {:.2f}%'.format(100. * auc))
 
