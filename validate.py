@@ -245,7 +245,7 @@ def bn_trend(opt, model, device):
 
 @dispatcher.register('bnzscores')
 @torch.no_grad()
-def bn_trend(opt, model, device):
+def bnzscores(opt, model, device):
     model.eval()
 
     bn_rare = {}

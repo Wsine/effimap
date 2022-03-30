@@ -109,6 +109,88 @@ def bn_running_mean_std(opt, model, device):
     return result, 'bn_running_stats.pt'
 
 
+@dispatcher.register('vae-train')
+def execution_trace_for_vae(opt, model, device):
+    trainloader = load_dataloader(opt, split='train')
+    model.eval()
+
+    vae_container = []
+
+    def _bn_hook(module, inputs, outputs):
+        bn_var1 = torch.var(inputs[0], dim=(1, 2, 3))
+        intermediate =  F.batch_norm(
+            inputs[0],
+            module.running_mean, module.running_var,
+            None, None,
+            False,  # bn_training
+            0.0 if module.momentum is None else module.momentum,
+            module.eps
+        )
+        bn_var2 = torch.var(intermediate, dim=(1, 2, 3))
+        bn_var3 = torch.var(outputs, dim=(1, 2, 3))
+        vae_container.append(bn_var2 - bn_var1)
+        vae_container.append(bn_var3 - bn_var1)
+
+    def _act_hook(module, inputs, outputs):
+        mask = (inputs[0] < 0).sum(dim=(1, 2, 3)) / outputs[0].numel()
+        vae_container.append(mask)
+
+    def _ln_hook(module, inputs, outputs):
+        gini = F.softmax(outputs, dim=1).square().sum(dim=1).mul(-1.).add(1.)
+        vae_container.append(gini)
+
+    last_linear = None
+    for module in model.modules():
+        if isinstance(module, nn.BatchNorm2d):
+            module.register_forward_hook(_bn_hook)
+        elif isinstance(module, nn.ReLU):
+            module.register_forward_hook(_act_hook)
+        elif isinstance(module, nn.Linear):
+            last_linear = module
+    if last_linear is not None:
+        last_linear.register_forward_hook(_ln_hook)
+
+    vae_mean, vae_std, vae_normalize = None, 1, []
+    vae_norm_file = os.path.join(
+        opt.output_dir, opt.dataset, opt.model, 'vae_normalize.pt')
+    if os.path.exists(vae_norm_file):
+        with open(vae_norm_file, 'rb') as f:
+            stat = torch.load(f, map_location=torch.device('cpu'))
+            vae_mean = stat['vae_mean'].to(device)
+            vae_std = stat['vae_std'].to(device)
+
+    for e in range(opt.epochs):
+        print('Epoch: {}'.format(e))
+
+        for inputs, _ in tqdm(trainloader, desc='VAE', leave=True):
+            inputs = inputs.to(device)
+            vae_container.clear()
+
+            with torch.no_grad():
+                outputs = model(inputs)
+            vae_inputs = torch.stack(vae_container).transpose(0, 1)
+
+            if vae_mean is None:
+                vae_normalize.append(vae_inputs)
+                continue
+
+            vae_inputs.sub_(vae_mean).div_(vae_std)  # normalize
+
+
+        if vae_mean is None:
+            x = torch.cat(vae_normalize)
+            vae_mean = x.mean(dim=0)
+            vae_std = x.std(dim=0)
+            vae_normalize.clear()
+
+            with open(vae_norm_file, 'wb') as f:
+                torch.save({'vae_mean': vae_mean, 'vae_std': vae_std}, f)
+            print('Saved vae mean and std.')
+
+
+    return {}, 'nothing.json'
+
+
 def main():
     opt = parser.add_dispatch(dispatcher).parse_args()
     print(opt)
@@ -118,7 +200,7 @@ def main():
     model = load_model(opt).to(device)
 
     result, result_name = dispatcher(opt, model, device)
-    export_object(opt, result_name, result)
+    #  export_object(opt, result_name, result)
 
 
 if __name__ == '__main__':
