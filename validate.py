@@ -9,6 +9,7 @@ import scipy.stats as st
 
 from dataset import load_dataloader
 from model import get_device, load_model
+from models.vanilla_vae import VanillaVAE
 from arguments import parser
 from utils import *
 
@@ -293,6 +294,95 @@ def bnzscores(opt, model, device):
 
     df = df.astype({'rare': float, 'actual': int})
     fpr, tpr, _ = metrics.roc_curve(df['actual'], df['rare'])
+    auc = metrics.auc(fpr, tpr)
+    print('validate auc for bn: {:.2f}%'.format(100. * auc))
+
+
+@dispatcher.register('vae-prioritize')
+@torch.no_grad()
+def vae_prioritize(opt, model, device):
+    model.eval()
+    testloader = load_dataloader(opt, split='test')
+
+    vae_container = []
+
+    def _bn_hook(module, inputs, outputs):
+        bn_var1 = torch.var(inputs[0], dim=(1, 2, 3))
+        intermediate =  F.batch_norm(
+            inputs[0],
+            module.running_mean, module.running_var,
+            None, None,
+            False,  # bn_training
+            0.0 if module.momentum is None else module.momentum,
+            module.eps
+        )
+        bn_var2 = torch.var(intermediate, dim=(1, 2, 3))
+        bn_var3 = torch.var(outputs, dim=(1, 2, 3))
+        vae_container.append(bn_var2 - bn_var1)
+        vae_container.append(bn_var3 - bn_var1)
+
+    def _act_hook(module, inputs, outputs):
+        mask = (inputs[0] < 0).sum(dim=(1, 2, 3)) / outputs[0].numel()
+        vae_container.append(mask)
+
+    def _ln_hook(module, inputs, outputs):
+        gini = F.softmax(outputs, dim=1).square().sum(dim=1).mul(-1.).add(1.)
+        vae_container.append(gini)
+
+    last_linear = None
+    for module in model.modules():
+        if isinstance(module, nn.BatchNorm2d):
+            module.register_forward_hook(_bn_hook)
+        elif isinstance(module, nn.ReLU):
+            module.register_forward_hook(_act_hook)
+        elif isinstance(module, nn.Linear):
+            last_linear = module
+    if last_linear is not None:
+        last_linear.register_forward_hook(_ln_hook)
+
+    vae_norm_file = get_output_location(opt, 'vae_normalize.pt')
+    with open(vae_norm_file, 'rb') as f:
+        stat = torch.load(f, map_location=torch.device('cpu'))
+        vae_mean = stat['vae_mean'].to(device)
+        vae_std = stat['vae_std'].to(device)
+    padded_op = nn.ConstantPad1d((0, 128 - 98), 0)
+    vae_model = VanillaVAE(1, 128, 128)
+    model_file = get_output_location(opt, 'vae_model.pt')
+    with open(model_file, 'rb') as f:
+        state = torch.load(f, map_location=torch.device('cpu'))
+        vae_model.load_state_dict(state['net'])
+    vae_model = vae_model.to(device)
+    vae_model.eval()
+
+    df = pd.DataFrame()
+    correct, total = 0, 0
+    for inputs, targets in tqdm(testloader, desc='Validate'):
+        inputs, targets = inputs.to(device), targets.to(device)
+        vae_container.clear()
+
+        outputs = model(inputs)
+        _, predicted = outputs.max(1)
+        equal = predicted.eq(targets)
+        correct += equal.sum().item()
+        total += targets.size(0)
+
+        vae_inputs = torch.stack(vae_container).transpose(0, 1)
+        vae_inputs.sub_(vae_mean).div_(vae_std + 1e-5)  # normalize
+        vae_inputs = padded_op(vae_inputs)
+        vae_inputs = vae_inputs.unsqueeze(1)  # expand dimension
+        vae_outputs = vae_model.generate(vae_inputs)
+        rec_err = F.mse_loss(
+            vae_inputs, vae_outputs, reduction='none'
+        ).mean(dim=2).flatten()
+
+        for e, r in zip(equal, rec_err):
+            df = df.append({
+                'err': -1 * r.item(),
+                'actual': e.item()
+            }, ignore_index=True)
+
+    df = df.astype({'err': float, 'actual': int})
+    fpr, tpr, _ = metrics.roc_curve(df['actual'], df['err'])
     auc = metrics.auc(fpr, tpr)
     print('validate auc for bn: {:.2f}%'.format(100. * auc))
 

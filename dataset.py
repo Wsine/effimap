@@ -5,7 +5,7 @@ import torchvision.transforms as T
 from sklearn.model_selection import train_test_split
 
 
-def load_dataset(opt, split, single_class=None, download=True):
+def load_dataset(opt, split, single_class=None, filter_idx=None, download=True):
     train = True if split == 'train' else False
 
     if opt.dataset == 'cifar10':
@@ -46,6 +46,8 @@ def load_dataset(opt, split, single_class=None, download=True):
             if y == single_class
         ]
         dataset = torch.utils.data.Subset(dataset, clx_indices)  # type: ignore
+    if filter_idx is not None:
+        dataset = torch.utils.data.Subset(dataset, filter_idx)  # type: ignore
 
     return dataset
 

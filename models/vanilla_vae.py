@@ -185,14 +185,17 @@ class TestVanillaVAE(unittest.TestCase):
         self.model = VanillaVAE(1, 128, 10)
 
     def test_summary(self):
+        print('==== test_summary ====')
         print(summary(self.model, (1, 128), device='cpu'))
 
     def test_forward(self):
+        print('==== test_forward ====')
         x = torch.randn(64, 1, 128)
         y = self.model(x)
         print("Model Output size:", y[0].size())
 
     def test_loss(self):
+        print('==== test_loss ====')
         x = torch.randn(64, 1, 128)
 
         result = self.model(x)

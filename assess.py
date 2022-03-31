@@ -6,6 +6,7 @@ import pandas as pd
 
 from dataset import load_dataloader
 from model import get_device, load_model
+from models.vanilla_vae import VanillaVAE
 from arguments import parser
 from utils import *
 
@@ -111,8 +112,20 @@ def bn_running_mean_std(opt, model, device):
 
 @dispatcher.register('vae-train')
 def execution_trace_for_vae(opt, model, device):
-    trainloader = load_dataloader(opt, split='train')
     model.eval()
+
+    trainloader = load_dataloader(opt, split='train')
+
+    equals = []
+    temploader = load_dataloader(opt, split='val')
+    for inputs, targets in temploader:
+        inputs, targets = inputs.to(device), targets.to(device)
+        with torch.no_grad():
+            outputs = model(inputs)
+        _, predicted = outputs.max(1)
+        equals.append(predicted.eq(targets))
+    filter_idx = torch.cat(equals).nonzero().flatten().cpu().tolist()
+    valloader = load_dataloader(opt, split='val', filter_idx=filter_idx, download=False)
 
     vae_container = []
 
@@ -159,23 +172,60 @@ def execution_trace_for_vae(opt, model, device):
             vae_mean = stat['vae_mean'].to(device)
             vae_std = stat['vae_std'].to(device)
 
+    padded_len, padded_op = 2, None
+    vae_model, optimizer, scheduler = None, None, None
+    best_reconstr_err = 1e5
+
     for e in range(opt.epochs):
         print('Epoch: {}'.format(e))
 
-        for inputs, _ in tqdm(trainloader, desc='VAE', leave=True):
+        if vae_model is not None: vae_model.train()
+        train_loss, reconstr_err = 0, 0
+        tepoch = tqdm(trainloader, desc='Train')
+        for batch_idx, (inputs, _) in enumerate(tepoch):
             inputs = inputs.to(device)
             vae_container.clear()
 
+            # Extract features
             with torch.no_grad():
-                outputs = model(inputs)
+                model(inputs)
             vae_inputs = torch.stack(vae_container).transpose(0, 1)
 
+            # Normalize features
             if vae_mean is None:
                 vae_normalize.append(vae_inputs)
                 continue
+            vae_inputs.sub_(vae_mean).div_(vae_std + 1e-5)  # normalize
 
-            vae_inputs.sub_(vae_mean).div_(vae_std)  # normalize
+            # VAE model preparation
+            if padded_op is None:
+                vae_len = vae_inputs.size()[-1]
+                while padded_len < vae_len: padded_len *= 2
+                padded_op = nn.ConstantPad1d((0, padded_len - vae_len), 0)
+                vae_model = VanillaVAE(1, padded_len, 128).to(device)
+                optimizer = torch.optim.Adam(
+                    vae_model.parameters(),
+                    lr=0.005,
+                    weight_decay=0.0
+                )
+                scheduler = torch.optim.lr_scheduler.ExponentialLR(
+                    optimizer, gamma=0.95
+                )
+            vae_inputs = padded_op(vae_inputs)
+            vae_inputs = vae_inputs.unsqueeze(1)  # expand dimension
 
+            assert(vae_model is not None and optimizer is not None)
+            optimizer.zero_grad()
+            vae_outputs = vae_model(vae_inputs)
+            loss = vae_model.loss_function(*vae_outputs, M_N=0.00025)
+            loss['loss'].backward()
+            optimizer.step()
+
+            train_loss += loss['loss'].item()
+            reconstr_err += loss['Reconstruction_Loss'].item()
+            avg_loss = train_loss / (batch_idx + 1)
+            avg_rec_err = reconstr_err / (batch_idx + 1)
+            tepoch.set_postfix(loss=avg_loss, err=avg_rec_err)
 
         if vae_mean is None:
             x = torch.cat(vae_normalize)
@@ -186,9 +236,56 @@ def execution_trace_for_vae(opt, model, device):
             with open(vae_norm_file, 'wb') as f:
                 torch.save({'vae_mean': vae_mean, 'vae_std': vae_std}, f)
             print('Saved vae mean and std.')
+            continue
 
+        if vae_model is not None: vae_model.eval()
+        test_loss, reconstr_err = 0, 0
+        tepoch = tqdm(valloader, desc='Validate')
+        for batch_idx, (inputs, _) in enumerate(tepoch):
+            inputs = inputs.to(device)
+            vae_container.clear()
 
-    return {}, 'nothing.json'
+            # Extract features
+            with torch.no_grad():
+                model(inputs)
+            vae_inputs = torch.stack(vae_container).transpose(0, 1)
+
+            # Normalize features
+            vae_inputs.sub_(vae_mean).div_(vae_std + 1e-5)  # normalize
+
+            # VAE model preparation
+            assert(padded_op is not None)
+            vae_inputs = padded_op(vae_inputs)
+            vae_inputs = vae_inputs.unsqueeze(1)  # expand dimension
+
+            assert(vae_model is not None and optimizer is not None)
+            with torch.no_grad():
+                vae_outputs = vae_model(vae_inputs)
+                loss = vae_model.loss_function(*vae_outputs, M_N=1.0)
+
+            test_loss += loss['loss'].item()
+            reconstr_err += loss['Reconstruction_Loss'].item()
+            avg_loss = test_loss / (batch_idx + 1)
+            avg_rec_err = reconstr_err / (batch_idx + 1)
+            tepoch.set_postfix(loss=avg_loss, err=avg_rec_err)
+
+        if reconstr_err < best_reconstr_err:
+            print('Saving...')
+            state = {
+                'epoch': e,
+                'net': vae_model.state_dict(),  # type: ignore
+                'optim': optimizer.state_dict(),  # type: ignore
+                'sched': scheduler.state_dict(),  # type: ignore
+                'err': reconstr_err,
+                'padded': padded_len
+            }
+            torch.save(state, get_output_location(opt, 'vae_model.pt'))
+            best_reconstr_err = reconstr_err
+
+        assert(scheduler is not None)
+        scheduler.step()
+
+    return None, None
 
 
 def main():
@@ -200,7 +297,8 @@ def main():
     model = load_model(opt).to(device)
 
     result, result_name = dispatcher(opt, model, device)
-    #  export_object(opt, result_name, result)
+    if result is not None:
+        export_object(opt, result_name, result)
 
 
 if __name__ == '__main__':
