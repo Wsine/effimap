@@ -129,39 +129,62 @@ def execution_trace_for_vae(opt, model, device):
 
     vae_container = []
 
-    def _bn_hook(module, inputs, outputs):
-        bn_var1 = torch.var(inputs[0], dim=(1, 2, 3))
-        intermediate =  F.batch_norm(
-            inputs[0],
-            module.running_mean, module.running_var,
-            None, None,
-            False,  # bn_training
-            0.0 if module.momentum is None else module.momentum,
-            module.eps
-        )
-        bn_var2 = torch.var(intermediate, dim=(1, 2, 3))
-        bn_var3 = torch.var(outputs, dim=(1, 2, 3))
-        vae_container.append(bn_var2 - bn_var1)
-        vae_container.append(bn_var3 - bn_var1)
+    #  def _bn_hook(module, inputs, outputs):
+    #      bn_var1 = torch.var(inputs[0], dim=(1, 2, 3))
+    #      intermediate =  F.batch_norm(
+    #          inputs[0],
+    #          module.running_mean, module.running_var,
+    #          None, None,
+    #          False,  # bn_training
+    #          0.0 if module.momentum is None else module.momentum,
+    #          module.eps
+    #      )
+    #      bn_var2 = torch.var(intermediate, dim=(1, 2, 3))
+    #      bn_var3 = torch.var(outputs, dim=(1, 2, 3))
+    #      vae_container.append(bn_var2 - bn_var1)
+    #      vae_container.append(bn_var3 - bn_var1)
+    #
+    #  def _act_hook(module, inputs, outputs):
+    #      mask = (inputs[0] < 0).sum(dim=(1, 2, 3)) / outputs[0].numel()
+    #      vae_container.append(mask)
+    #
+    #  def _ln_hook(module, inputs, outputs):
+    #      gini = F.softmax(outputs, dim=1).square().sum(dim=1).mul(-1.).add(1.)
+    #      vae_container.append(gini)
+    #
+    #  last_linear = None
+    #  for module in model.modules():
+    #      if isinstance(module, nn.BatchNorm2d):
+    #          module.register_forward_hook(_bn_hook)
+    #      elif isinstance(module, nn.ReLU):
+    #          module.register_forward_hook(_act_hook)
+    #      elif isinstance(module, nn.Linear):
+    #          last_linear = module
+    #  if last_linear is not None:
+    #      last_linear.register_forward_hook(_ln_hook)
 
-    def _act_hook(module, inputs, outputs):
-        mask = (inputs[0] < 0).sum(dim=(1, 2, 3)) / outputs[0].numel()
-        vae_container.append(mask)
-
-    def _ln_hook(module, inputs, outputs):
-        gini = F.softmax(outputs, dim=1).square().sum(dim=1).mul(-1.).add(1.)
-        vae_container.append(gini)
-
-    last_linear = None
-    for module in model.modules():
-        if isinstance(module, nn.BatchNorm2d):
-            module.register_forward_hook(_bn_hook)
-        elif isinstance(module, nn.ReLU):
-            module.register_forward_hook(_act_hook)
+    def _hook(module, inputs, outputs):
+        if isinstance(module, (nn.Conv2d, nn.BatchNorm2d, nn.ReLU)):
+            mean = torch.mean(outputs, dim=(2, 3))
+            var = torch.var(outputs, dim=(2, 3))
+            vae_container.append(mean)
+            vae_container.append(var)
+        if isinstance(module, nn.ReLU):
+            in_mask = (inputs[0] < 0).sum(dim=(2, 3)) / outputs[0, 0].numel()
+            out_mask = (outputs < 0).sum(dim=(2, 3)) / outputs[0, 0].numel()
+            vae_container.append(out_mask - in_mask)
         elif isinstance(module, nn.Linear):
-            last_linear = module
-    if last_linear is not None:
-        last_linear.register_forward_hook(_ln_hook)
+            in_feat_mean = torch.mean(inputs[0], dim=1, keepdim=True)
+            out_feat_mean = torch.mean(inputs[0], dim=1, keepdim=True)
+            vae_container.append(out_feat_mean - in_feat_mean)
+            in_feat_var = torch.var(inputs[0], dim=1, keepdim=True)
+            out_feat_var = torch.var(inputs[0], dim=1, keepdim=True)
+            vae_container.append(out_feat_var - in_feat_var)
+            gini = F.softmax(outputs, dim=1).square().sum(dim=1, keepdim=True).mul(-1.).add(1.)
+            vae_container.append(gini)
+
+    for module in model.modules():
+        module.register_forward_hook(_hook)
 
     vae_mean, vae_std, vae_normalize = None, 1, []
     vae_norm_file = os.path.join(
@@ -189,7 +212,8 @@ def execution_trace_for_vae(opt, model, device):
             # Extract features
             with torch.no_grad():
                 model(inputs)
-            vae_inputs = torch.stack(vae_container).transpose(0, 1)
+            #  vae_inputs = torch.stack(vae_container).transpose(0, 1)
+            vae_inputs = torch.cat(vae_container, dim=1)
 
             # Normalize features
             if vae_mean is None:
@@ -199,19 +223,23 @@ def execution_trace_for_vae(opt, model, device):
 
             # VAE model preparation
             if padded_op is None:
-                vae_len = vae_inputs.size()[-1]
-                while padded_len < vae_len: padded_len *= 2
-                padded_op = nn.ConstantPad1d((0, padded_len - vae_len), 0)
-                vae_model = VanillaVAE(1, padded_len, 128).to(device)
+                #  vae_len = vae_inputs.size()[-1]
+                #  padded_len = vae_len
+                #  while padded_len % (2 ** 5) != 0: padded_len += 1
+                #  padded_op = nn.ConstantPad1d((0, padded_len - vae_len), 0)
+                #  vae_model = VanillaVAE(1, padded_len, 128).to(device)
+                _, padded_op = vae_std.topk(4096, largest=False)
+                vae_model = VanillaVAE(1, 4096, 128).to(device)
                 optimizer = torch.optim.Adam(
                     vae_model.parameters(),
-                    lr=0.005,
+                    lr=0.00005,
                     weight_decay=0.0
                 )
                 scheduler = torch.optim.lr_scheduler.ExponentialLR(
                     optimizer, gamma=0.95
                 )
-            vae_inputs = padded_op(vae_inputs)
+            #  vae_inputs = padded_op(vae_inputs)
+            vae_inputs = vae_inputs[:, padded_op]
             vae_inputs = vae_inputs.unsqueeze(1)  # expand dimension
 
             assert(vae_model is not None and optimizer is not None)
@@ -248,14 +276,16 @@ def execution_trace_for_vae(opt, model, device):
             # Extract features
             with torch.no_grad():
                 model(inputs)
-            vae_inputs = torch.stack(vae_container).transpose(0, 1)
+            #  vae_inputs = torch.stack(vae_container).transpose(0, 1)
+            vae_inputs = torch.cat(vae_container, dim=1)
 
             # Normalize features
             vae_inputs.sub_(vae_mean).div_(vae_std + 1e-5)  # normalize
 
             # VAE model preparation
             assert(padded_op is not None)
-            vae_inputs = padded_op(vae_inputs)
+            #  vae_inputs = padded_op(vae_inputs)
+            vae_inputs = vae_inputs[:, padded_op]
             vae_inputs = vae_inputs.unsqueeze(1)  # expand dimension
 
             assert(vae_model is not None and optimizer is not None)
