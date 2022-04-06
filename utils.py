@@ -8,15 +8,12 @@ import torch
 
 
 def get_output_location(opt, filename=None):
-    output_folder = os.path.join(
-        opt.output_dir, opt.dataset, opt.model
-    )
-    if filename is None:
-        return output_folder
-    output_file = os.path.join(
-        output_folder, filename
-    )
-    return output_file
+    output_folder = os.path.join(opt.output_dir, opt.dataset, opt.model)
+    if isinstance(filename, str):
+        return os.path.join(output_folder, filename)
+    if isinstance(filename, list):
+        return os.path.join(output_folder, *filename)
+    return output_folder
 
 
 def guard_folder(opt, folder=None):
@@ -24,10 +21,11 @@ def guard_folder(opt, folder=None):
         folder = []
     elif isinstance(folder, str):
         folder = [folder]
-    folder.append(get_output_location(opt))
+    output_folder = get_output_location(opt)
     for f in folder:
-        if not os.path.isdir(f):
-            os.makedirs(f)
+        p = os.path.join(output_folder, f)
+        if not os.path.isdir(p):
+            os.makedirs(p)
 
 
 def dict_hash(dictionary):
@@ -74,6 +72,9 @@ def preview_object(obj):
 
 
 def export_object(opt, filename, obj, **kwargs):
+    if obj is None:
+        print('object to export is None.')
+        return
     mode = 'b' if filename.endswith(('.pkl', '.pt')) else ''
     dstdir = os.path.join(opt.output_dir, opt.dataset, opt.model)
 
