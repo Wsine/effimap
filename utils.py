@@ -5,6 +5,7 @@ import functools
 import hashlib
 
 import torch
+import pandas as pd
 
 
 def get_output_location(opt, filename=None):
@@ -71,7 +72,7 @@ def preview_object(obj):
     print(json.dumps(_reduce_object(obj), indent=2, ensure_ascii=False))
 
 
-def export_object(opt, filename, obj, **kwargs):
+def save_object(opt, obj, filename, **kwargs):
     if obj is None:
         print('object to export is None.')
         return
@@ -92,6 +93,29 @@ def export_object(opt, filename, obj, **kwargs):
             obj.to_csv(f, float_format='%.8f')
         elif filename.endswith('.pt'):
             torch.save(obj, f)
+
+
+def load_object(opt, filename, **kwargs):
+    mode = 'b' if filename.endswith(('.pkl', '.pt')) else ''
+    dstdir = os.path.join(opt.output_dir, opt.dataset, opt.model)
+
+    filepath = os.path.join(dstdir, filename)
+    with open(filepath, f'r{mode}') as f:
+        if filename.endswith('.pkl'):
+            obj = pickle.load(f, **kwargs)
+        elif filename.endswith('.json'):
+            if 'indent' not in kwargs:
+                kwargs['indent'] = 2
+            if 'ensure_ascii' not in kwargs:
+                kwargs['ensure_ascii'] = False
+            obj = json.load(f, **kwargs)
+        elif filename.endswith('.csv'):
+            obj = pd.read_csv(f)
+        elif filename.endswith('.pt'):
+            obj = torch.load(f, map_location='cpu')
+        else:
+            raise ValueError('Invalid input')
+    return obj
 
 
 # borrow from: https://stackoverflow.com/questions/31174295/

@@ -11,6 +11,7 @@ scipy = "*"
 sklearn = "*"
 pandas = "*"
 torchsummary = "*"
+xgboost = "*"
 
 [dev-packages]
 
