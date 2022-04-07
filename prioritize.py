@@ -76,11 +76,7 @@ def estimator_method(opt, model, dataloader, device):
     model.eval()
 
     mutation_model = load_object(opt, 'mutation_estimator.pkl')
-    mutation_model.estimator.set_params(  # type: ignore
-        predictor='gpu_predictor',
-        n_jobs=8
-    )
-    print(mutation_model.estimator.get_params())  # type: ignore
+    ranking_model = load_object(opt, 'ranking_model.pkl')
 
     df = pd.DataFrame()
     correct, total = 0, 0
@@ -88,27 +84,32 @@ def estimator_method(opt, model, dataloader, device):
         inputs, targets = inputs.to(device), targets.to(device)
         feature_container.clear()
         outputs = model(inputs)
-        features = torch.stack(feature_container, dim=-1).detach().cpu().numpy()
+        features = torch.stack(feature_container, dim=-1).cpu().numpy()
         mutation = mutation_model.predict(features)  # type: ignore
+        ranking = ranking_model.predict_proba(mutation)  # type: ignore
 
         _, predicted = outputs.max(1)
         equals = predicted.eq(targets)
         correct += equals.sum().item()
         total += targets.size(0)
 
-        for m, e in zip(mutation, equals):
+        for m, r, e in zip(mutation, ranking, equals):
             df = df.append({
                 'mutation_score': m.sum(),
+                'ranking': r[1],
                 'actual': e.item()
             }, ignore_index=True)
 
     # statistic result
     print('test acc: {:.2f}%'.format(100. * correct / total))
 
-    df = df.astype({'mutation_score': float, 'actual': int})
+    df = df.astype({'mutation_score': float, 'ranking': float, 'actual': int})
     fpr, tpr, _ = metrics.roc_curve(df['actual'], df['mutation_score'])
     auc = metrics.auc(fpr, tpr)
-    print('auc for estimator: {:.2f}%'.format(100. * auc))
+    print('auc for mutation score: {:.2f}%'.format(100. * auc))
+    fpr, tpr, _ = metrics.roc_curve(df['actual'], df['ranking'])
+    auc = metrics.auc(fpr, tpr)
+    print('auc for ranking model: {:.2f}%'.format(100. * auc))
 
 
 def main():
