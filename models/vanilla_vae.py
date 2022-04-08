@@ -13,7 +13,7 @@ Tensor = TypeVar('torch.tensor')  # type: ignore
 class VanillaVAE(nn.Module):
     def __init__(self,
                  in_channels: int,
-                 in_seq_len: int,
+                 in_img_size: int,
                  latent_dim: int,
                  hidden_dims: List = None) -> None:
         super(VanillaVAE, self).__init__()
@@ -28,37 +28,38 @@ class VanillaVAE(nn.Module):
         for h_dim in hidden_dims:
             modules.append(
                 nn.Sequential(
-                    nn.Conv1d(in_channels, out_channels=h_dim,
+                    nn.Conv2d(in_channels, out_channels=h_dim,
                               kernel_size=3, stride=2, padding=1),
-                    nn.BatchNorm1d(h_dim),
+                    nn.BatchNorm2d(h_dim),
                     nn.LeakyReLU()
                 )
             )
             in_channels = h_dim
+            in_img_size = in_img_size // 2
 
+        self.hidden_size = in_img_size
         self.encoder = nn.Sequential(*modules)
-        self.seq_len = in_seq_len // (2 ** len(hidden_dims))
-        self.fc_mu = nn.Linear(hidden_dims[-1] * self.seq_len, latent_dim)
-        self.fc_var = nn.Linear(hidden_dims[-1] * self.seq_len, latent_dim)
+        self.fc_mu = nn.Linear(hidden_dims[-1] * self.hidden_size * self.hidden_size, latent_dim)
+        self.fc_var = nn.Linear(hidden_dims[-1] * self.hidden_size * self.hidden_size, latent_dim)
 
 
         # Build Decoder
         modules = []
 
-        self.decoder_input = nn.Linear(latent_dim, hidden_dims[-1] * self.seq_len)
+        self.decoder_input = nn.Linear(latent_dim, hidden_dims[-1] * self.hidden_size * self.hidden_size)
 
         hidden_dims.reverse()
 
         for i in range(len(hidden_dims) - 1):
             modules.append(
                 nn.Sequential(
-                    nn.ConvTranspose1d(hidden_dims[i],
+                    nn.ConvTranspose2d(hidden_dims[i],
                                        hidden_dims[i + 1],
                                        kernel_size=3,
                                        stride=2,
                                        padding=1,
                                        output_padding=1),
-                    nn.BatchNorm1d(hidden_dims[i + 1]),
+                    nn.BatchNorm2d(hidden_dims[i + 1]),
                     nn.LeakyReLU()
                 )
             )
@@ -68,15 +69,15 @@ class VanillaVAE(nn.Module):
         self.decoder = nn.Sequential(*modules)
 
         self.final_layer = nn.Sequential(
-            nn.ConvTranspose1d(hidden_dims[-1],
+            nn.ConvTranspose2d(hidden_dims[-1],
                                hidden_dims[-1],
                                kernel_size=3,
                                stride=2,
                                padding=1,
                                output_padding=1),
-            nn.BatchNorm1d(hidden_dims[-1]),
+            nn.BatchNorm2d(hidden_dims[-1]),
             nn.LeakyReLU(),
-            nn.Conv1d(hidden_dims[-1], out_channels=1,
+            nn.Conv2d(hidden_dims[-1], out_channels=3,
                       kernel_size=3, padding=1),
             nn.Tanh()
         )
@@ -106,12 +107,12 @@ class VanillaVAE(nn.Module):
         :return: (Tensor) [B x C x H x W]
         """
         result = self.decoder_input(z)
-        result = result.view(-1, 512, self.seq_len)
+        result = result.view(-1, 512, self.hidden_size, self.hidden_size)
         result = self.decoder(result)
         result = self.final_layer(result)
         return result
 
-    def reparameterize(self, mu: Tensor, logvar: Tensor) -> Tensor:
+    def reparameterize(self, mu: Tensor, logvar: Tensor, expand: int=None ) -> Tensor:
         """
         Reparameterization trick to sample from N(mu, var) from
         N(0,1).
@@ -120,7 +121,10 @@ class VanillaVAE(nn.Module):
         :return: (Tensor) [B x D]
         """
         std = torch.exp(0.5 * logvar)  # type: ignore
-        eps = torch.randn_like(std)
+        if not expand:
+            eps = torch.randn_like(std)
+        else:
+            eps = torch.randn(expand, std.size(1))
         return eps * std + mu  # type: ignore
 
     def forward(self, input: Tensor) -> List[Tensor]:
@@ -162,45 +166,53 @@ class VanillaVAE(nn.Module):
         :param current_device: (Int) Device to run the model
         :return: (Tensor)
         """
-        z = torch.randn(num_samples,
-                        self.latent_dim)
-
+        z = torch.randn(num_samples, self.latent_dim)
         z = z.to(current_device)
 
         samples = self.decode(z)
         return samples  # type: ignore
 
-    def generate(self, x: Tensor) -> Tensor:
+    def generate(self, x: Tensor, num_samples: int) -> Tensor:
         """
         Given an input image x, returns the reconstructed image
-        :param x: (Tensor) [B x C x H x W]
-        :return: (Tensor) [B x C x H x W]
+        :param x: (Tensor) [1 x C x H x W]
+        :return: (Tensor) [num_samples x C x H x W]
         """
-
-        return self.forward(x)[0]
+        mu, log_var = self.encode(x)
+        z = self.reparameterize(mu, log_var, expand=num_samples)
+        samples = self.decode(z)
+        return samples  # type: ignore
 
 
 class TestVanillaVAE(unittest.TestCase):
     def setUp(self) -> None:
-        self.model = VanillaVAE(1, 128, 10)
+        self.model = VanillaVAE(3, 32, 10)
 
     def test_summary(self):
         print('==== test_summary ====')
-        print(summary(self.model, (1, 128), device='cpu'))
+        print(summary(self.model, (3, 32, 32), device='cpu'))
 
     def test_forward(self):
         print('==== test_forward ====')
-        x = torch.randn(64, 1, 128)
+        x = torch.randn(16, 3, 32, 32)
         y = self.model(x)
         print("Model Output size:", y[0].size())
 
     def test_loss(self):
         print('==== test_loss ====')
-        x = torch.randn(64, 1, 128)
+        x = torch.randn(16, 3, 32, 32)
 
         result = self.model(x)
-        loss = self.model.loss_function(*result, M_N = 0.005)
+        loss = self.model.loss_function(*result, M_N=0.005)
         print(loss)
+
+    @torch.no_grad()
+    def test_generate(self):
+        print('==== test_generate ====')
+        self.model.eval()
+        x = torch.randn(1, 3, 32, 32)
+        samples = self.model.generate(x, num_samples=200)
+        print(samples.size())
 
 
 if __name__ == '__main__':

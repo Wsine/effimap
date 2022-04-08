@@ -37,7 +37,7 @@ parser.add_argument('--seed', type=int, default=2022)
 parser.add_argument('-b', '--batch_size', type=int, default=64)
 parser.add_argument('-m', '--model', type=str, default='resnet32', choices=models)
 parser.add_argument('-d', '--dataset', type=str, default='cifar100', choices=datasets)
-parser.add_argument('-e', '--epochs', type=int, default=90)
+parser.add_argument('-e', '--epochs', type=int, default=100)
 parser.add_argument('--num_model_mutants', type=int, default=100)
 parser.add_argument('--num_input_mutants', type=int, default=200)
 

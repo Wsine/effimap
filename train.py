@@ -1,12 +1,19 @@
 import torch
-from torch.utils.data import Dataset, random_split
+from torch.utils.data import Dataset
 import numpy as np
 import xgboost as xgb
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.metrics import accuracy_score
+from tqdm import tqdm
 
 from arguments import parser
+from dataset import load_dataloader
+from model import get_device
+from models.vanilla_vae import VanillaVAE
 from utils import *
+
+
+dispatcher = AttrDispatcher('target')
 
 
 class AutoFeatureDataset(Dataset):
@@ -43,7 +50,8 @@ class AutoFeatureDataset(Dataset):
         return feat, mut, gt
 
 
-def train_estimator(opt):
+@dispatcher.register('estimator')
+def train_estimator_model(opt):
     dataset = AutoFeatureDataset(opt)
     print('[info] data loaded.')
 
@@ -66,9 +74,10 @@ def train_estimator(opt):
     acc = accuracy_score(Y, multilabel_model.predict(X))
     print('Accuracy on training data: {:.4f}%'.format(acc * 100))
 
-    return multilabel_model
+    return multilabel_model, 'mutation_estimator.pkl'
 
 
+@dispatcher.register('ranking')
 def train_ranking_model(opt):
     dataset = AutoFeatureDataset(opt)
     print('[info] data loaded.')
@@ -93,19 +102,74 @@ def train_ranking_model(opt):
     acc = accuracy_score(Z, xgb_ranking.predict(Y))
     print('Accuracy on training data: {:.4f}%'.format(acc * 100))
 
-    return xgb_ranking
+    return xgb_ranking, 'ranking_model.pkl'
+
+
+@dispatcher.register('encoder')
+def train_autoencoder_model(opt):
+    device = get_device(opt)
+    trainloader = load_dataloader(opt, split='train')
+    img_size = next(iter(trainloader))[0].size(-1)
+    model = VanillaVAE(3, img_size, 10).to(device)
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=0.00005,
+        weight_decay=0.0
+    )
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(
+        optimizer, gamma=0.95
+    )
+
+    best_rec_err = 1e8
+    for e in range(opt.epochs):
+        print('Epoch: {}'.format(e))
+
+        loss, rec_err = 0, 0
+        for mode in ('Train', 'Validate'):
+            model.train() if model == 'Train' else model.eval()
+            loss=0; rec_err=0
+            tepoch = tqdm(trainloader, desc=mode)
+            for batch_idx, (inputs, _) in enumerate(tepoch):
+                inputs = inputs.to(device)
+                if mode == 'Train':
+                    optimizer.zero_grad()
+                    outputs = model(inputs)
+                    tloss = model.loss_function(*outputs, M_N=0.00025)
+                    tloss['loss'].backward()
+                    optimizer.step()
+                else:
+                    with torch.no_grad():
+                        outputs = model(inputs)
+                    tloss = model.loss_function(*outputs, M_N=1.0)
+
+                loss += tloss['loss'].item()
+                rec_err += tloss['Reconstruction_Loss'].item()
+                avg_loss = loss / (batch_idx + 1)
+                avg_rec_err = rec_err / (batch_idx + 1)
+                tepoch.set_postfix(loss=avg_loss, err=avg_rec_err)
+
+        if rec_err < best_rec_err:
+            print('Saving...')
+            state = {
+                'epoch': e,
+                'net': model.state_dict(),
+                'optim': optimizer.state_dict(),
+                'sched': scheduler.state_dict(),
+                'err': rec_err
+            }
+            torch.save(state, get_output_location(opt, 'encoder_model.pt'))
+            best_rec_err = rec_err
+
+        scheduler.step()
+    return None, ''
 
 
 def main():
-    opt = parser.parse_args()
+    opt = parser.add_dispatch(dispatcher).parse_args()
     print(opt)
 
-    print('[info] training estimator')
-    model = train_estimator(opt)
-    save_object(opt, model, 'mutation_estimator.pkl')
-    print('[info] training ranking model')
-    model = train_ranking_model(opt)
-    save_object(opt, model, 'ranking_model.pkl')
+    model, model_name = dispatcher(opt)
+    save_object(opt, model, model_name)
 
 
 if __name__ == '__main__':
