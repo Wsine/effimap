@@ -123,12 +123,12 @@ def get_input_mutants(opt, input_tensor):
 
 feature_container = []
 def feature_hook(module, inputs, outputs):
-    if isinstance(module, (nn.Conv2d, nn.BatchNorm2d, nn.ReLU)):
+    if isinstance(module, (nn.Conv2d, nn.BatchNorm2d, nn.ReLU, nn.LeakyReLU)):
         mean = torch.mean(outputs, dim=(1, 2, 3))
         feature_container.append(mean)
         var = torch.var(outputs, dim=(1, 2, 3))
         feature_container.append(var)
-    if isinstance(module, nn.ReLU):
+    if isinstance(module, (nn.ReLU, nn.LeakyReLU)):
         in_mask = (inputs[0] < 0).sum(dim=(1, 2, 3)) / outputs[0].numel()
         out_mask = (outputs < 0).sum(dim=(1, 2, 3)) / outputs[0].numel()
         feature_container.append(out_mask - in_mask)
