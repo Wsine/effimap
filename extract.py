@@ -87,8 +87,9 @@ def extract_features(opt, model, dataloader, device):
         result = load_object(opt, filepath)
     for idx, (inputs, targets) in enumerate(
             tqdm(dataloader, desc='Extract', leave=True)):
-        if f'mutant{idx}' in result.keys(): continue  # type: ignore
-        mutation_pool = torch.zeros((1, opt.num_model_mutants), device=device)
+        if f'sample{idx}' in result.keys(): continue  # type: ignore
+        mutation_pool = torch.zeros(
+            (1, opt.num_model_mutants), dtype=torch.long, device=device)
         inputs, targets = inputs.to(device), targets.to(device)
         accu_trial = 0
         features, mutation, pred_ret = [], [], []
@@ -101,12 +102,12 @@ def extract_features(opt, model, dataloader, device):
                 outputs = model(input_mutants)
                 _, predicted = outputs.max(1)
 
-                mutated_mask = (predicted[1:] != predicted[0]).float().view(1, -1)
-                new_pool = torch.cat((mutation_pool, mutated_mask))
+                mutated_mask = (predicted[1:] != predicted[0]).long()
+                new_pool = torch.cat((mutation_pool, mutated_mask.view(1, -1)))
                 if new_pool.std() > mutation_pool.std():
                     mutation_pool = new_pool
                     features.append(torch.stack(feature_container, dim=-1)[0])
-                    mutation.append(mutated_mask.long())
+                    mutation.append(mutated_mask)
                     pred_ret.append(predicted[0].eq(targets).long())
                     pbar.update(1)
                     accu_trial = 0
@@ -116,7 +117,7 @@ def extract_features(opt, model, dataloader, device):
                         print(f'Detected no new coverage after {opt.num_input_mutants} trials')
                         mutation_pool.zero_()
                         accu_trial = 0
-        result[f'mutant{idx}'] = {  # type: ignore
+        result[f'sample{idx}'] = {  # type: ignore
             'features': torch.stack(features).cpu(),
             'mutation': torch.stack(mutation).cpu(),
             'prediction': torch.cat(pred_ret).cpu()
