@@ -7,7 +7,7 @@ from tqdm import tqdm
 from arguments import parser
 from dataset import load_dataloader
 from model import get_device, load_model
-from extract import feature_hook, feature_container
+from mutate import feature_hook, feature_container
 from utils import *
 
 
@@ -24,26 +24,6 @@ def eval_feature_variance(model, dataloader, device):
 
     features = torch.cat(features)
     return features.std(dim=0)
-
-
-def channel_hook(chn):
-    def _hook(module, inputs, output):
-        if isinstance(module, nn.Conv2d):
-            output[:, chn] = 0
-        elif isinstance(module, nn.BatchNorm2d):
-            output[:, chn] = inputs[0][:, chn]
-        elif isinstance(module, (nn.ReLU, nn.LeakyReLU)):
-            try:
-                d = output.get_device()
-            except RuntimeError:
-                d = torch.device('cpu')
-            g = torch.Generator(d).manual_seed(chn)
-            mask = torch.bernoulli(
-                torch.where(output[0] < 0, 0.1, 0.0), generator=g
-            ).bool().expand(output.size())
-            output = torch.where(mask, inputs[0], output)
-        return output
-    return _hook
 
 
 def search_model_mutants(opt, model, dataloader, device):

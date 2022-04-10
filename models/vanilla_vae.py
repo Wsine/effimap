@@ -112,7 +112,7 @@ class VanillaVAE(nn.Module):
         result = self.final_layer(result)
         return result
 
-    def reparameterize(self, mu: Tensor, logvar: Tensor, expand: int=None ) -> Tensor:
+    def reparameterize(self, mu: Tensor, logvar: Tensor) -> Tensor:
         """
         Reparameterization trick to sample from N(mu, var) from
         N(0,1).
@@ -121,10 +121,7 @@ class VanillaVAE(nn.Module):
         :return: (Tensor) [B x D]
         """
         std = torch.exp(0.5 * logvar)  # type: ignore
-        if not expand:
-            eps = torch.randn_like(std)
-        else:
-            eps = torch.randn(expand, std.size(1))
+        eps = torch.randn_like(std)
         return eps * std + mu  # type: ignore
 
     def forward(self, input: Tensor) -> List[Tensor]:
@@ -156,9 +153,7 @@ class VanillaVAE(nn.Module):
         loss = recons_loss + kld_weight * kld_loss
         return {'loss': loss, 'Reconstruction_Loss':recons_loss.detach(), 'KLD':-kld_loss.detach()}
 
-    def sample(self,
-               num_samples:int,
-               current_device: str) -> Tensor:
+    def sample(self, num_samples:int, current_device: str) -> Tensor:
         """
         Samples from the latent space and return the corresponding
         image space map.
@@ -172,16 +167,13 @@ class VanillaVAE(nn.Module):
         samples = self.decode(z)
         return samples  # type: ignore
 
-    def generate(self, x: Tensor, num_samples: int) -> Tensor:
+    def generate(self, x: Tensor) -> Tensor:
         """
         Given an input image x, returns the reconstructed image
-        :param x: (Tensor) [1 x C x H x W]
-        :return: (Tensor) [num_samples x C x H x W]
+        :param x: (Tensor) [B x C x H x W]
+        :return: (Tensor) [B x C x H x W]
         """
-        mu, log_var = self.encode(x)
-        z = self.reparameterize(mu, log_var, expand=num_samples)
-        samples = self.decode(z)
-        return samples  # type: ignore
+        return self.forward(x)[0]
 
 
 class TestVanillaVAE(unittest.TestCase):
@@ -211,7 +203,7 @@ class TestVanillaVAE(unittest.TestCase):
         print('==== test_generate ====')
         self.model.eval()
         x = torch.randn(1, 3, 32, 32)
-        samples = self.model.generate(x, num_samples=200)
+        samples = self.model.generate(x)
         print(samples.size())
 
 

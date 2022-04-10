@@ -104,11 +104,7 @@ def load_object(opt, filename, **kwargs):
         if filename.endswith('.pkl'):
             obj = pickle.load(f, **kwargs)
         elif filename.endswith('.json'):
-            if 'indent' not in kwargs:
-                kwargs['indent'] = 2
-            if 'ensure_ascii' not in kwargs:
-                kwargs['ensure_ascii'] = False
-            obj = json.load(f, **kwargs)
+            obj = json.load(f)
         elif filename.endswith('.csv'):
             obj = pd.read_csv(f)
         elif filename.endswith('.pt'):
