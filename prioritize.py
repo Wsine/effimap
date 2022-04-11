@@ -76,7 +76,7 @@ def estimator_method(opt, model, dataloader, device):
         for m, e in zip(mutation, equals):
             df = df.append({
                 'mutation_score': m.sum(),
-                'actual': e.item()
+                'actual': (~e).item()
             }, ignore_index=True)
         #  for m, r, e in zip(mutation, ranking, equals):
         #      df = df.append({

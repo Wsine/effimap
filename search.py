@@ -7,33 +7,31 @@ from tqdm import tqdm
 from arguments import parser
 from dataset import load_dataloader
 from model import get_device, load_model
-from mutate import feature_hook, feature_container
+from mutate import channel_hook
 from utils import *
 
 
 @torch.no_grad()
-def eval_feature_variance(model, dataloader, device):
+def eval_performance(model, dataloader, device):
     model.eval()
 
-    features = []
+    preds, gt = [], []
     for inputs, targets in tqdm(dataloader, desc='Eval', leave=False):
         inputs, targets = inputs.to(device), targets.to(device)
-        feature_container.clear()
-        model(inputs)
-        features.append(torch.stack(feature_container, dim=-1))
+        outputs = model(inputs)
+        _, predicted = outputs.max(1)
+        preds.append(predicted)
+        gt.append(predicted.eq(targets))
 
-    features = torch.cat(features)
-    return features.std(dim=0)
+    preds = torch.cat(preds)
+    gt = torch.cat(gt)
+    return preds, gt
 
 
 def search_model_mutants(opt, model, dataloader, device):
-    hook_handlers = {}
-    for name, module in model.named_modules():
-        handler = module.register_forward_hook(feature_hook)
-        hook_handlers[name] = handler
-
-    var0 = eval_feature_variance(model, dataloader, device)
-    var_pool = var0.clone()
+    pred0, gt0 = eval_performance(model, dataloader, device)
+    mutation_pool = torch.zeros_like(gt0, dtype=torch.bool)
+    step_mutation_score = torch.zeros(1).to(device)
 
     result = {}
     searched = [f"{v['layer_name']}_{v['channel_idx']}" for v in result.values()]
@@ -59,13 +57,16 @@ def search_model_mutants(opt, model, dataloader, device):
                     raise ValueError('Impossible')
                 if f'{lname}_{chn_idx}' in searched:
                     layer = None
-            hook_handlers[lname].remove()
             handler = layer.register_forward_hook(channel_hook(chn_idx))  # type: ignore
-            hook_handlers[lname] = layer.register_forward_hook(feature_hook)
-            var = eval_feature_variance(model, dataloader, device)
-            new_coverage_mask = (var - var_pool) > 0
-            if new_coverage_mask.sum() > 0:
-                var_pool = torch.where(new_coverage_mask, var, var_pool)
+            pred, _ = eval_performance(model, dataloader, device)
+            mutated_mask = pred.ne(pred0)
+            mutated_score = torch.logical_and(mutated_mask, ~gt0).sum() \
+                          - torch.logical_and(~mutated_mask, gt0).sum()
+            new_coverage_mask = ~gt0 & mutated_mask & ~mutation_pool
+            if new_coverage_mask.sum() > 0 or mutated_score > step_mutation_score:
+                mutation_pool.logical_or_(new_coverage_mask)
+                step_mutation_score = step_mutation_score  \
+                    + 0.5 * (mutated_score - step_mutation_score)
                 result[f'mutant{mutant_idx}'] = {
                     'layer_name': lname,
                     'channel_idx': chn_idx
@@ -78,7 +79,8 @@ def search_model_mutants(opt, model, dataloader, device):
                 accu_trial += 1
                 if accu_trial > opt.num_model_mutants:
                     print(f'Detected no new coverage after {opt.num_model_mutants} trials')
-                    var_pool = var0.clone()
+                    mutation_pool.zero_()
+                    step_mutation_score.zero_()
                     accu_trial = 0
             handler.remove()
 

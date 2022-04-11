@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from arguments import parser
 from dataset import load_dataloader
-from model import get_device
+from model import get_device, load_model
 from models.vanilla_vae import VanillaVAE
 from utils import *
 
@@ -22,22 +22,8 @@ def train_estimator_model(opt):
     for v in extract_features.values():  # type: ignore
         X.append(v['features'].numpy())
         Y.append(v['mutation'].numpy())
-
-    # hacked to avoid data validation
-    X.append(np.zeros_like(X[0]))
-    Y.append(np.ones_like(Y[0]))
-    X.append(np.ones_like(X[0]))
-    Y.append(np.zeros_like(Y[0]))
-
     X = np.concatenate(X)
     Y = np.concatenate(Y)
-
-    #  for i in range(Y.shape[1]):
-    #      y = Y[:, i]
-    #      classes_ = np.unique(np.asarray(y))
-    #      n_classes_ = len(classes_)
-    #      if not np.array_equal(classes_, np.arange(n_classes_)):
-    #          print('Fuck', i, classes_, y)
     print('[info] data loaded.')
 
     xgb_estimator = xgb.XGBClassifier(
@@ -68,7 +54,6 @@ def train_ranking_model(opt):
         Z.append(v['prediction'].numpy())
     Y = np.concatenate(Y)
     Z = np.concatenate(Z)
-    print(Y.shape, Z.shape)
     print('[info] data loaded.')
 
     xgb_ranking = xgb.XGBClassifier(
@@ -94,11 +79,13 @@ def train_ranking_model(opt):
 @dispatcher.register('encoder')
 def train_autoencoder_model(opt):
     device = get_device(opt)
-    trainloader = load_dataloader(opt, split='train')
-    img_size = next(iter(trainloader))[0].size(-1)
-    model = VanillaVAE(3, img_size, 10).to(device)
+    model = load_model(opt).to(device)
+    model.eval()
+    valloader = load_dataloader(opt, split='val')
+    img_size = next(iter(valloader))[0].size(-1)
+    encoder = VanillaVAE(3, img_size, 10).to(device)
     optimizer = torch.optim.Adam(
-        model.parameters(),
+        encoder.parameters(),
         lr=0.00005,
         weight_decay=0.0
     )
@@ -112,21 +99,37 @@ def train_autoencoder_model(opt):
 
         loss, rec_err = 0, 0
         for mode in ('Train', 'Validate'):
-            model.train() if model == 'Train' else model.eval()
+            encoder.train() if encoder == 'Train' else encoder.eval()
             loss=0; rec_err=0
-            tepoch = tqdm(trainloader, desc=mode)
-            for batch_idx, (inputs, _) in enumerate(tepoch):
-                inputs = inputs.to(device)
+            tepoch = tqdm(valloader, desc=mode)
+            for batch_idx, (inputs, targets) in enumerate(tepoch):
+                inputs, targets = inputs.to(device), targets.to(device)
+                with torch.no_grad():
+                    _, predicted = model(inputs).max(1)
+                equals = predicted.eq(targets)
                 if mode == 'Train':
                     optimizer.zero_grad()
-                    outputs = model(inputs)
-                    tloss = model.loss_function(*outputs, M_N=0.00025)
+                    outputs = encoder(inputs)
+                    noises = torch.stack([
+                        torch.zeros_like(inputs[0]) if e else \
+                        torch.logical_and(
+                            torch.bernoulli(
+                                torch.zeros_like(inputs[0]).fill_(0.1)),
+                            torch.normal(0, 0.8, inputs[0].size()).to(device)
+                        )
+                        for e in equals
+                    ])
+                    outputs[0] = outputs[0] + noises
+                    tloss = encoder.loss_function(*outputs, M_N=0.00025)
                     tloss['loss'].backward()
                     optimizer.step()
                 else:
                     with torch.no_grad():
-                        outputs = model(inputs)
-                    tloss = model.loss_function(*outputs, M_N=1.0)
+                        outputs = encoder(inputs)
+                        indices = equals.nonzero(as_tuple=True)
+                        for i, o in enumerate(outputs):
+                            outputs[i] = o[indices]
+                        tloss = encoder.loss_function(*outputs, M_N=1.0)
 
                 loss += tloss['loss'].item()
                 rec_err += tloss['Reconstruction_Loss'].item()
@@ -138,7 +141,7 @@ def train_autoencoder_model(opt):
             print('Saving...')
             state = {
                 'epoch': e,
-                'net': model.state_dict(),
+                'net': encoder.state_dict(),
                 'optim': optimizer.state_dict(),
                 'sched': scheduler.state_dict(),
                 'err': rec_err

@@ -65,8 +65,6 @@ def get_input_mutants(opt, input_tensor):
 
 @torch.no_grad()
 def extract_features(opt, model, dataloader, device):
-    guard_folder(opt, 'extract_features')
-
     model.eval()
     mutate_info = load_object(opt, 'model_mutants_info.json')
     for k, v in mutate_info.items():  # type: ignore
@@ -78,20 +76,22 @@ def extract_features(opt, model, dataloader, device):
         module.register_forward_hook(feature_hook)
 
     img_size = next(iter(dataloader))[0].size(-1)
-    generator = VanillaVAE(3, img_size, 10).to(device)
+    generator = VanillaVAE(3, img_size, 10)
+    state = load_object(opt, 'encoder_model.pt')
+    generator.load_state_dict(state['net'])  # type: ignore
+    generator = generator.to(device)
     generator.eval()
 
     result = {}
     filepath = get_output_location(opt, 'extract_features.pt')
     if os.path.exists(filepath):
-        result = load_object(opt, filepath)
+        result = load_object(opt, 'extract_features.pt')
     for idx, (inputs, targets) in enumerate(
             tqdm(dataloader, desc='Extract', leave=True)):
         if f'sample{idx}' in result.keys(): continue  # type: ignore
-        mutation_pool = torch.zeros(
-            (1, opt.num_model_mutants), dtype=torch.long, device=device)
+        #  mutation_pool = torch.zeros((1, opt.num_model_mutants)).to(device)
         inputs, targets = inputs.to(device), targets.to(device)
-        accu_trial = 0
+        #  accu_trial = 0
         features, mutation, pred_ret = [], [], []
         with tqdm(total=opt.num_input_mutants, desc='Mutants', leave=False) as pbar:
             while len(features) < opt.num_input_mutants:
@@ -102,21 +102,25 @@ def extract_features(opt, model, dataloader, device):
                 outputs = model(input_mutants)
                 _, predicted = outputs.max(1)
 
-                mutated_mask = (predicted[1:] != predicted[0]).long()
-                new_pool = torch.cat((mutation_pool, mutated_mask.view(1, -1)))
-                if new_pool.std() > mutation_pool.std():
-                    mutation_pool = new_pool
-                    features.append(torch.stack(feature_container, dim=-1)[0])
-                    mutation.append(mutated_mask)
-                    pred_ret.append(predicted[0].eq(targets).long())
-                    pbar.update(1)
-                    accu_trial = 0
-                else:
-                    accu_trial += 1
-                    if accu_trial > opt.num_input_mutants:
-                        print(f'Detected no new coverage after {opt.num_input_mutants} trials')
-                        mutation_pool.zero_()
-                        accu_trial = 0
+                mutated_mask = (predicted[1:] != predicted[0])
+                #  new_pool = torch.cat((mutation_pool, mutated_mask.float().view(1, -1)))
+                #  if new_pool.std() > mutation_pool.std():
+                #      mutation_pool = new_pool
+                #      features.append(torch.stack(feature_container, dim=-1)[0])
+                #      mutation.append(mutated_mask.long())
+                #      pred_ret.append(predicted[0].eq(targets).long())
+                #      pbar.update(1)
+                #      accu_trial = 0
+                #  else:
+                #      accu_trial += 1
+                #      if accu_trial > opt.num_input_mutants:
+                #          print(f'Detected no new coverage after {opt.num_input_mutants} trials')
+                #          mutation_pool.zero_()
+                #          accu_trial = 0
+                features.append(torch.stack(feature_container, dim=-1)[0])
+                mutation.append(mutated_mask.long())
+                pred_ret.append(predicted[0].eq(targets).long())
+                pbar.update(1)
         result[f'sample{idx}'] = {  # type: ignore
             'features': torch.stack(features).cpu(),
             'mutation': torch.stack(mutation).cpu(),
