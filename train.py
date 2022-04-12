@@ -28,13 +28,15 @@ def train_estimator_model(opt):
 
     xgb_estimator = xgb.XGBClassifier(
         use_label_encoder=False,
+        n_estimators=800,
         objective='binary:logistic',
         eval_metric='logloss',
-        #  max_delta_step=5,  # tuning for 0-10 for data unbalanced
+        max_delta_step=5,  # tuning for 0-10 for data unbalanced
         tree_method='gpu_hist',
         gpu_id=opt.gpu,
         verbosity=2
     )
+    print(xgb_estimator.get_params())
     multilabel_model = MultiOutputClassifier(xgb_estimator, n_jobs=8)
     multilabel_model.fit(X, Y)
     print('[info] model trained.')
