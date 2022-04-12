@@ -40,4 +40,5 @@ parser.add_argument('-d', '--dataset', type=str, default='cifar100', choices=dat
 parser.add_argument('-e', '--epochs', type=int, default=100)
 parser.add_argument('--num_model_mutants', type=int, default=100)
 parser.add_argument('--num_input_mutants', type=int, default=200)
+parser.add_argument('--prima_split', type=str, default='val')
 

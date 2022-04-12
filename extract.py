@@ -13,15 +13,16 @@ from arguments import parser
 from utils import *
 
 
+dispatcher = AttrDispatcher('strategy')
+
+
 def get_model_mutants(opt, model):
     mutate_ops = ['NAI', 'NEB', 'GF', 'WS']
     assert(opt.num_model_mutants % len(mutate_ops) == 0)
-    for i in range(opt.num_model_mutants + 1):
+    for i in range(opt.num_model_mutants):
         mutant = copy.deepcopy(model)
-        if i == 0:
-            yield i, mutant
         fixed_random = random.Random(opt.seed + i)
-        op = mutate_ops[(i - 1) % len(mutate_ops)]
+        op = mutate_ops[i % len(mutate_ops)]
         if op == 'NAI':
             selected_layer = fixed_random.choice([
                 m for m in mutant.modules()
@@ -38,7 +39,7 @@ def get_model_mutants(opt, model):
                 selected_layer.weight = GF_hack(selected_layer.weight, opt.seed + i)
             elif op == 'WS':
                 selected_layer.weight = WS_hack(selected_layer.weight, opt.seed + i)
-        yield i, mutant
+        yield mutant
 
 
 def get_input_mutants(opt, input_tensor):
@@ -63,8 +64,63 @@ def get_input_mutants(opt, input_tensor):
     return torch.stack(mutants)
 
 
+@dispatcher.register('random')
 @torch.no_grad()
-def extract_features(opt, model, dataloader, device):
+def prima_extract_features(opt, model, device):
+    model.eval()
+    valloader = load_dataloader(opt, split=opt.prima_split)
+
+    input_feat_path = get_output_location(
+            opt, f'prima_input_features_{opt.prima_split}.pt')
+    if not os.path.exists(input_feat_path):
+        input_features = []
+        for inputs, _ in tqdm(valloader, desc='Input Mutants'):
+            _, pred0 = model(inputs.to(device)).max(1)
+            for i, input in enumerate(inputs):
+                input_mutants = get_input_mutants(opt, input).to(device)
+                _, pred = model(input_mutants).max(1)
+                mutated = pred.ne(pred0[i]).int()
+                input_features.append(mutated.cpu())
+        input_features = torch.stack(input_features)
+        torch.save({'feats': input_features}, input_feat_path)
+
+    feat_target_path = get_output_location(
+            opt, f'prima_feature_target_{opt.prima_split}.pt')
+    model_feat_path = get_output_location(
+            opt, f'prima_model_features_{opt.prima_split}.pt')
+    if not os.path.exists(model_feat_path):
+        pred0, equals = [], []
+        for inputs, targets in tqdm(valloader, desc='Original Model'):
+            inputs, targets = inputs.to(device), targets.to(device)
+            _, pred = model(inputs).max(1)
+            pred0.append(pred)
+            equals.append(pred.eq(targets))
+        equals = torch.cat(equals).cpu()
+        torch.save({'equals': equals}, feat_target_path)
+
+        model_features = []
+        for mutant in tqdm(
+                get_model_mutants(opt, model.cpu()),
+                desc='Model Mutants', total=opt.num_model_mutants):
+            mutant.eval()
+            mutant = mutant.to(device)
+            mutated = []
+            for batch_idx, (inputs, _) in enumerate(
+                    tqdm(valloader, desc='Inference', leave=False)):
+                _, pred = mutant(inputs.to(device)).max(1)
+                mutated.append(pred.ne(pred0[batch_idx]).cpu())
+            model_features.append(torch.cat(mutated))
+        model_features = torch.stack(model_features, dim=-1)
+        torch.save({'feats': model_features}, model_feat_path)
+
+
+@dispatcher.register('furret')
+@torch.no_grad()
+def furret_extract_features(opt, model, device):
+    print('[info] Enforce to change the batch size to be 1.')
+    opt.batch_size = 1
+    valloader = load_dataloader(opt, split='val')
+
     model.eval()
     mutate_info = load_object(opt, 'model_mutants_info.json')
     for k, v in mutate_info.items():  # type: ignore
@@ -75,7 +131,7 @@ def extract_features(opt, model, dataloader, device):
     for module in model.modules():
         module.register_forward_hook(feature_hook)
 
-    img_size = next(iter(dataloader))[0].size(-1)
+    img_size = next(iter(valloader))[0].size(-1)
     generator = VanillaVAE(3, img_size, 10)
     state = load_object(opt, 'encoder_model.pt')
     generator.load_state_dict(state['net'])  # type: ignore
@@ -87,11 +143,9 @@ def extract_features(opt, model, dataloader, device):
     if os.path.exists(filepath):
         result = load_object(opt, 'extract_features.pt')
     for idx, (inputs, targets) in enumerate(
-            tqdm(dataloader, desc='Extract', leave=True)):
+            tqdm(valloader, desc='Extract', leave=True)):
         if f'sample{idx}' in result.keys(): continue  # type: ignore
-        #  mutation_pool = torch.zeros((1, opt.num_model_mutants)).to(device)
         inputs, targets = inputs.to(device), targets.to(device)
-        #  accu_trial = 0
         features, mutation, pred_ret = [], [], []
         with tqdm(total=opt.num_input_mutants, desc='Mutants', leave=False) as pbar:
             while len(features) < opt.num_input_mutants:
@@ -103,20 +157,6 @@ def extract_features(opt, model, dataloader, device):
                 _, predicted = outputs.max(1)
 
                 mutated_mask = (predicted[1:] != predicted[0])
-                #  new_pool = torch.cat((mutation_pool, mutated_mask.float().view(1, -1)))
-                #  if new_pool.std() > mutation_pool.std():
-                #      mutation_pool = new_pool
-                #      features.append(torch.stack(feature_container, dim=-1)[0])
-                #      mutation.append(mutated_mask.long())
-                #      pred_ret.append(predicted[0].eq(targets).long())
-                #      pbar.update(1)
-                #      accu_trial = 0
-                #  else:
-                #      accu_trial += 1
-                #      if accu_trial > opt.num_input_mutants:
-                #          print(f'Detected no new coverage after {opt.num_input_mutants} trials')
-                #          mutation_pool.zero_()
-                #          accu_trial = 0
                 features.append(torch.stack(feature_container, dim=-1)[0])
                 mutation.append(mutated_mask.long())
                 pred_ret.append(predicted[0].eq(targets).long())
@@ -131,16 +171,13 @@ def extract_features(opt, model, dataloader, device):
 
 
 def main():
-    opt = parser.parse_args()
+    opt = parser.add_dispatch(dispatcher).parse_args()
     print(opt)
 
     device = get_device(opt)
     model = load_model(opt).to(device)
-    print('[info] Enforce to change the batch size to be 1.')
-    opt.batch_size = 1
-    valloader = load_dataloader(opt, split='val')
 
-    extract_features(opt, model, valloader, device)
+    dispatcher(opt, model, device)
 
 
 if __name__ == '__main__':

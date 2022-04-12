@@ -1,5 +1,4 @@
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 import pandas as pd
@@ -48,7 +47,7 @@ def gini_method(_, model, dataloader, device):
     print('auc for gini: {:.2f}%'.format(100. * auc))
 
 
-@dispatcher.register('estimate')
+@dispatcher.register('furret')
 @torch.no_grad()
 def estimator_method(opt, model, dataloader, device):
     for module in model.modules():
@@ -56,7 +55,6 @@ def estimator_method(opt, model, dataloader, device):
     model.eval()
 
     mutation_model = load_object(opt, 'mutation_estimator.pkl')
-    #  ranking_model = load_object(opt, 'ranking_model.pkl')
 
     df = pd.DataFrame()
     correct, total = 0, 0
@@ -66,7 +64,6 @@ def estimator_method(opt, model, dataloader, device):
         outputs = model(inputs)
         features = torch.stack(feature_container, dim=-1).cpu().numpy()
         mutation = mutation_model.predict(features)  # type: ignore
-        #  ranking = ranking_model.predict_proba(mutation)  # type: ignore
 
         _, predicted = outputs.max(1)
         equals = predicted.eq(targets)
@@ -78,24 +75,33 @@ def estimator_method(opt, model, dataloader, device):
                 'mutation_score': m.sum(),
                 'actual': (~e).item()
             }, ignore_index=True)
-        #  for m, r, e in zip(mutation, ranking, equals):
-        #      df = df.append({
-        #          'mutation_score': m.sum(),
-        #          'ranking': r[1],
-        #          'actual': e.item()
-        #      }, ignore_index=True)
 
     # statistic result
     print('test acc: {:.2f}%'.format(100. * correct / total))
 
-    #  df = df.astype({'mutation_score': float, 'ranking': float, 'actual': int})
     df = df.astype({'mutation_score': float, 'actual': int})
     fpr, tpr, _ = metrics.roc_curve(df['actual'], df['mutation_score'])
     auc = metrics.auc(fpr, tpr)
     print('auc for mutation score: {:.2f}%'.format(100. * auc))
-    #  fpr, tpr, _ = metrics.roc_curve(df['actual'], df['ranking'])
-    #  auc = metrics.auc(fpr, tpr)
-    #  print('auc for ranking model: {:.2f}%'.format(100. * auc))
+
+
+@dispatcher.register('prima')
+def prima_method(opt, model, dataloader, device):
+    input_features = load_object(opt, 'prima_input_features_test.pt')
+    model_features = load_object(opt, 'prima_model_features_test.pt')
+    feature_target = load_object(opt, 'prima_feature_target_test.pt')
+    X = torch.cat(
+        (input_features['feats'], model_features['feats']),  # type: ignore
+        dim=1).numpy()
+    Y = feature_target['equals'].numpy()  # type: ignore
+    print('[info] data loaded.')
+
+    ranking_model = load_object(opt, 'prima_ranking_model.pkl')
+    rank = ranking_model.predict(X)  # type: ignore
+
+    fpr, tpr, _ = metrics.roc_curve(Y, rank)
+    auc = metrics.auc(fpr, tpr)
+    print('auc for ranking model: {:.2f}%'.format(100. * auc))
 
 
 def main():

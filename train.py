@@ -155,6 +155,37 @@ def train_autoencoder_model(opt):
     return None, ''
 
 
+@dispatcher.register('l2r')
+def prima_learning_to_rank(opt):
+    input_features = load_object(opt, 'prima_input_features_val.pt')
+    model_features = load_object(opt, 'prima_model_features_val.pt')
+    feature_target = load_object(opt, 'prima_feature_target_val.pt')
+    X = torch.cat(
+        (input_features['feats'], model_features['feats']),  # type: ignore
+        dim=1).numpy()
+    Y = feature_target['equals'].numpy()  # type: ignore
+    print('[info] data loaded.')
+
+    xgb_ranking = xgb.XGBClassifier(
+        use_label_encoder=False,
+        eta=0.05,  # learning rate
+        colsample_bytree=0.5,
+        max_depth=5,
+        objective='binary:logistic',
+        eval_metric='logloss',
+        tree_method='gpu_hist',
+        gpu_id=opt.gpu,
+        verbosity=2
+    )
+    xgb_ranking.fit(X, Y)
+    print('[info] model trained.')
+
+    acc = accuracy_score(Y, xgb_ranking.predict(X))
+    print('Accuracy on training data: {:.4f}%'.format(acc * 100))
+
+    return xgb_ranking, 'prima_ranking_model.pkl'
+
+
 def main():
     opt = parser.add_dispatch(dispatcher).parse_args()
     print(opt)
