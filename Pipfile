@@ -12,6 +12,8 @@ sklearn = "*"
 pandas = "*"
 torchsummary = "*"
 xgboost = "*"
+opencv-python = "*"
+ipython = "*"
 
 [dev-packages]
 

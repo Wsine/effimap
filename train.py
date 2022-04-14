@@ -186,6 +186,63 @@ def prima_learning_to_rank(opt):
     return xgb_ranking, 'prima_ranking_model.pkl'
 
 
+@dispatcher.register('finetune')
+def finetune_model(opt):
+    guard_folder(opt)
+    device = get_device(opt)
+    model = load_model(opt).to(device)
+    criterion = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+
+    dataloader = {
+        'train': load_dataloader(opt, split='train'),
+        'val': load_dataloader(opt, split='val')
+    }
+
+    num_epochs = 7
+    best_acc = 0
+    for epoch in range(num_epochs):
+        print('Epoch {}/{}'.format(epoch+1, num_epochs))
+        for phase in ('train', 'val'):
+            model.train() if phase == 'train' else model.eval()
+
+            running_loss, correct, total = 0, 0, 0
+            with tqdm(dataloader[phase], desc=phase) as tbar:
+                for batch_idx, (inputs, targets) in enumerate(tbar):
+                    inputs, targets = inputs.to(device), targets.to(device)
+                    optimizer.zero_grad()
+                    with torch.set_grad_enabled(phase == 'train'):
+                        outputs = model(inputs)
+                        _, preds = outputs.max(1)
+                        loss = criterion(outputs, targets)
+                        if phase == 'train':
+                            loss.backward()
+                            optimizer.step()
+                    running_loss += loss.item()
+                    correct += preds.eq(targets).sum().item()
+                    total += targets.size(0)
+                    acc = 100. * correct / total
+                    avg_loss = running_loss / (batch_idx + 1)
+                    tbar.set_postfix(acc=acc, loss=avg_loss)
+
+            acc = 100. * correct / total
+            if phase == 'val' and acc > best_acc:
+                print('Saving model...')
+                best_acc = acc
+                state = {
+                    'net': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'scheduler': scheduler.state_dict(),
+                    'epoch': epoch,
+                    'acc': acc
+                }
+                save_object(opt, state, 'finetune_model.pt')
+        scheduler.step()
+
+    return None, ''
+
+
 def main():
     opt = parser.add_dispatch(dispatcher).parse_args()
     print(opt)

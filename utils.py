@@ -18,13 +18,13 @@ def get_output_location(opt, filename=None):
 
 
 def guard_folder(opt, folder=None):
-    if folder is None:
-        folder = []
-    elif isinstance(folder, str):
-        folder = [folder]
     output_folder = get_output_location(opt)
-    for f in folder:
-        p = os.path.join(output_folder, f)
+    folder_to_create = [output_folder]
+    if isinstance(folder, str):
+        folder_to_create += [os.path.join(output_folder, folder)]
+    elif isinstance(folder, (list, tuple)):
+        folder_to_create += [os.path.join(output_folder, f) for f in folder]
+    for p in folder_to_create:
         if not os.path.isdir(p):
             os.makedirs(p)
 

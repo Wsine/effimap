@@ -14,18 +14,20 @@ class ArgsWrapper(argparse.ArgumentParser):
         return opt
 
     def _get_num_classes(self, opt):
-        if opt.dataset == 'cifar10':
+        if opt.dataset in ('cifar10', 'mnist', 'svhn', 'stl10'):
             opt.num_classes = 10
         elif opt.dataset == 'cifar100':
             opt.num_classes = 100
+        elif opt.dataset == 'tinyimagenet':
+            opt.num_classes = 200
         else:
             raise ValueError('Invalid dataset name')
         return opt
 
 
 devices = ['cpu', 'cuda']
-datasets = ['cifar10', 'cifar100']
-models = ['resnet32']
+datasets = ['cifar10', 'cifar100', 'mnist', 'svhn', 'stl10', 'tinyimagenet']
+models = ['resnet32', 'mlp', 'svhn', 'stl10', 'resnet18', 'resnet20']
 
 
 parser = ArgsWrapper()
