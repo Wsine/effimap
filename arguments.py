@@ -44,5 +44,5 @@ parser.add_argument('-e', '--epochs', type=int, default=100)
 parser.add_argument('--num_model_mutants', type=int, default=100)
 parser.add_argument('--num_input_mutants', type=int, default=200)
 parser.add_argument('--task', type=str, default='classify', choices=tasks)
-parser.add_argument('--prima_split', type=str, default='val')
+parser.add_argument('--prima_split', type=str, default='val', choices=('val', 'test'))
 

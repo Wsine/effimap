@@ -19,8 +19,10 @@ dispatcher = AttrDispatcher('prioritor')
 
 
 def auc_for_regression(y):
-    area_y = np.trapz(np.cumsum(y.to_numpy()))
-    z = np.cumsum(np.sort(y.to_numpy())[::-1])
+    if not isinstance(y, np.ndarray):
+        y = y.to_numpy()
+    area_y = np.trapz(np.cumsum(y))
+    z = np.cumsum(np.sort(y)[::-1])
     max_area_y = np.trapz(z)
     return area_y / max_area_y
 
@@ -102,7 +104,7 @@ def estimator_with_mutation_score(opt, model, dataloader, device):
     # statistic result
     if opt.task == 'regress':
         df = df.astype({'mutation_score': float, 'actual': float})
-        df.sort_values(by=['mutation_score'], ascending=False, inplace=True)
+        df.sort_values(by=['mutation_score'], ascending=True, inplace=True)
         print('test mse: {:.8f}'.format(correct / total))
         auc = auc_for_regression(df['actual'])
         print('auc for mutation score: {:.2f}%'.format(100. * auc))
@@ -190,8 +192,13 @@ def prima_method(opt, *_):
     rank = ranking_model.predict(X)  # type: ignore
     #  rank = X.sum(axis=1) * -1.
 
-    fpr, tpr, _ = metrics.roc_curve(Y, rank)
-    auc = metrics.auc(fpr, tpr)
+    if opt.task == 'regress':
+        sort_inds = rank.argsort()
+        Y = Y[sort_inds]
+        auc = auc_for_regression(Y)
+    else:
+        fpr, tpr, _ = metrics.roc_curve(Y, rank)
+        auc = metrics.auc(fpr, tpr)
     print('auc for ranking model: {:.2f}%'.format(100. * auc))
 
 

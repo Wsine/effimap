@@ -32,7 +32,7 @@ def get_model_mutants(opt, model):
             selected_layer.register_forward_pre_hook(NAI_hook(opt.seed + i))
         else:
             selected_layer = fixed_random.choice([
-                m for m in mutant.modules() if hasattr(m, 'weight')
+                m for m in mutant.modules() if hasattr(m, 'weight') and torch.is_tensor(m.weight)
             ])
             if op == 'NEB':
                 selected_layer.weight = NEB_hack(selected_layer.weight, opt.seed + i)
@@ -77,11 +77,18 @@ def prima_extract_features(opt, model, device):
     if not os.path.exists(input_feat_path):
         input_features = []
         for inputs, _ in tqdm(valloader, desc='Input Mutants'):
-            _, pred0 = model(inputs.to(device)).max(1)
+            if opt.task == 'regress':
+                pred0 = model(inputs.to(device)).flatten()
+            else:
+                _, pred0 = model(inputs.to(device)).max(1)
             for i, input in enumerate(inputs):
                 input_mutants = get_input_mutants(opt, input).to(device)
-                _, pred = model(input_mutants).max(1)
-                mutated = pred.ne(pred0[i]).int()
+                if opt.task == 'regress':
+                    pred = model(input_mutants).flatten()
+                    mutated = (pred - pred0[i]).abs()
+                else:
+                    _, pred = model(input_mutants).max(1)
+                    mutated = pred.ne(pred0[i]).int()
                 input_features.append(mutated.cpu())
         input_features = torch.stack(input_features)
         torch.save({'feats': input_features}, input_feat_path)
@@ -94,9 +101,15 @@ def prima_extract_features(opt, model, device):
         pred0, equals = [], []
         for inputs, targets in tqdm(valloader, desc='Original Model'):
             inputs, targets = inputs.to(device), targets.to(device)
-            _, pred = model(inputs).max(1)
-            pred0.append(pred)
-            equals.append(pred.eq(targets))
+            if opt.task == 'regress':
+                predicted = model(inputs).flatten()
+                pred0.append(predicted)
+                delta = predicted.view(-1) - targets.view(-1)
+                equals.append(delta.abs())
+            else:
+                _, pred = model(inputs).max(1)
+                pred0.append(pred)
+                equals.append(pred.eq(targets))
         equals = torch.cat(equals).cpu()
         torch.save({'equals': equals}, feat_target_path)
 
@@ -109,8 +122,12 @@ def prima_extract_features(opt, model, device):
             mutated = []
             for batch_idx, (inputs, _) in enumerate(
                     tqdm(valloader, desc='Inference', leave=False)):
-                _, pred = mutant(inputs.to(device)).max(1)
-                mutated.append(pred.ne(pred0[batch_idx]).cpu())
+                if opt.task == 'regress':
+                    pred = mutant(inputs.to(device)).flatten()
+                    mutated.append((pred - pred0[batch_idx]).abs().cpu())
+                else:
+                    _, pred = mutant(inputs.to(device)).max(1)
+                    mutated.append(pred.ne(pred0[batch_idx]).cpu())
             model_features.append(torch.cat(mutated))
         model_features = torch.stack(model_features, dim=-1)
         torch.save({'feats': model_features}, model_feat_path)

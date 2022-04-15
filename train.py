@@ -190,22 +190,35 @@ def prima_learning_to_rank(opt):
     Y = feature_target['equals'].numpy()  # type: ignore
     print('[info] data loaded.')
 
-    xgb_ranking = xgb.XGBClassifier(
-        use_label_encoder=False,
-        eta=0.05,  # learning rate
-        colsample_bytree=0.5,
-        max_depth=5,
-        objective='binary:logistic',
-        eval_metric='logloss',
-        tree_method='gpu_hist',
-        gpu_id=opt.gpu,
-        verbosity=2
-    )
+    if opt.task == 'regress':
+        xgb_ranking = xgb.XGBRegressor(
+            eta=0.05,  # learning rate
+            colsample_bytree=0.5,
+            max_depth=5,
+            gpu_id=opt.gpu,
+            verbosity=2
+        )
+    else:
+        xgb_ranking = xgb.XGBClassifier(
+            use_label_encoder=False,
+            eta=0.05,  # learning rate
+            colsample_bytree=0.5,
+            max_depth=5,
+            objective='binary:logistic',
+            eval_metric='logloss',
+            tree_method='gpu_hist',
+            gpu_id=opt.gpu,
+            verbosity=2
+        )
     xgb_ranking.fit(X, Y)
     print('[info] model trained.')
 
-    acc = accuracy_score(Y, xgb_ranking.predict(X))
-    print('Accuracy on training data: {:.4f}%'.format(acc * 100))
+    if opt.task == 'regress':
+        acc = mean_absolute_error(Y, xgb_ranking.predict(X))
+        print('MSE on training data: {:.8f}'.format(acc))
+    else:
+        acc = accuracy_score(Y, xgb_ranking.predict(X))
+        print('Accuracy on training data: {:.4f}%'.format(acc * 100))
 
     return xgb_ranking, 'prima_ranking_model.pkl'
 
