@@ -63,7 +63,8 @@ def search_model_mutants(opt, model, dataloader, device):
             mutated_score = torch.logical_and(mutated_mask, ~gt0).sum() \
                           - torch.logical_and(~mutated_mask, gt0).sum()
             new_coverage_mask = ~gt0 & mutated_mask & ~mutation_pool
-            if new_coverage_mask.sum() > 0 or mutated_score > step_mutation_score:
+            if new_coverage_mask.sum() > 0 or mutated_score > step_mutation_score \
+                    or opt.dataset in ('mnist', 'svhn'):  # already high accuracy, let it be random
                 mutation_pool.logical_or_(new_coverage_mask)
                 step_mutation_score = step_mutation_score  \
                     + 0.5 * (mutated_score - step_mutation_score)

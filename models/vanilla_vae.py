@@ -18,6 +18,7 @@ class VanillaVAE(nn.Module):
                  hidden_dims: List = None) -> None:
         super(VanillaVAE, self).__init__()
 
+        init_in_channels = in_channels
         self.latent_dim = latent_dim
 
         modules = []
@@ -77,7 +78,7 @@ class VanillaVAE(nn.Module):
                                output_padding=1),
             nn.BatchNorm2d(hidden_dims[-1]),
             nn.LeakyReLU(),
-            nn.Conv2d(hidden_dims[-1], out_channels=3,
+            nn.Conv2d(hidden_dims[-1], out_channels=init_in_channels,
                       kernel_size=3, padding=1),
             nn.Tanh()
         )
@@ -178,21 +179,21 @@ class VanillaVAE(nn.Module):
 
 class TestVanillaVAE(unittest.TestCase):
     def setUp(self) -> None:
-        self.model = VanillaVAE(3, 32, 10)
+        self.model = VanillaVAE(1, 32, 10)
 
     def test_summary(self):
         print('==== test_summary ====')
-        print(summary(self.model, (3, 32, 32), device='cpu'))
+        print(summary(self.model, (1, 32, 32), device='cpu'))
 
     def test_forward(self):
         print('==== test_forward ====')
-        x = torch.randn(16, 3, 32, 32)
+        x = torch.randn(16, 1, 32, 32)
         y = self.model(x)
         print("Model Output size:", y[0].size())
 
     def test_loss(self):
         print('==== test_loss ====')
-        x = torch.randn(16, 3, 32, 32)
+        x = torch.randn(16, 1, 32, 32)
 
         result = self.model(x)
         loss = self.model.loss_function(*result, M_N=0.005)
@@ -202,7 +203,7 @@ class TestVanillaVAE(unittest.TestCase):
     def test_generate(self):
         print('==== test_generate ====')
         self.model.eval()
-        x = torch.randn(1, 3, 32, 32)
+        x = torch.randn(1, 1, 32, 32)
         samples = self.model.generate(x)
         print(samples.size())
 

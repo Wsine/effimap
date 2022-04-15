@@ -3,6 +3,7 @@ import random
 
 import torch
 import torch.nn as nn
+import torchvision.transforms as T
 from tqdm import tqdm
 
 from dataset import load_dataloader
@@ -47,7 +48,8 @@ def get_input_mutants(opt, input_tensor):
     mutate_ops = ['PGF', 'PS', 'CPW', 'CPB', 'PCR']
     assert(opt.num_input_mutants % len(mutate_ops) == 0)
     for i in range(opt.num_input_mutants):
-        op = mutate_ops[i % len(mutate_ops)]
+        #  op = mutate_ops[i % len(mutate_ops)]
+        op = random.choice(mutate_ops)
         if op == 'PGF':
             img_tensor = GF_hack(input_tensor, opt.seed + i, std=0.8, ratio=0.05)
         elif op == 'PS':
@@ -131,8 +133,15 @@ def furret_extract_features(opt, model, device):
     for module in model.modules():
         module.register_forward_hook(feature_hook)
 
-    img_size = next(iter(valloader))[0].size(-1)
-    generator = VanillaVAE(3, img_size, 10)
+    sample_img = next(iter(valloader))[0][0]
+    img_channels, img_size = sample_img.size(0), sample_img.size(-1)
+    if img_size < 32:
+        pad = T.Pad((32 - img_size) // 2)
+        crop = T.CenterCrop(img_size)
+        img_size = 32
+    else:
+        pad = crop = None
+    generator = VanillaVAE(img_channels, img_size, 10)
     state = load_object(opt, 'encoder_model.pt')
     generator.load_state_dict(state['net'])  # type: ignore
     generator = generator.to(device)
@@ -149,17 +158,29 @@ def furret_extract_features(opt, model, device):
         features, mutation, pred_ret = [], [], []
         with tqdm(total=opt.num_input_mutants, desc='Mutants', leave=False) as pbar:
             while len(features) < opt.num_input_mutants:
-                input_mutants = generator.generate(inputs)
+                if pad is not None and crop is not None:
+                    input_mutants = crop(generator.generate(pad(inputs)))
+                else:
+                    input_mutants = generator.generate(inputs)
                 input_mutants = input_mutants.repeat(
                     opt.num_model_mutants + 1, 1, 1, 1)
+
                 feature_container.clear()
                 outputs = model(input_mutants)
-                _, predicted = outputs.max(1)
 
-                mutated_mask = (predicted[1:] != predicted[0])
+                if opt.task == 'regress':
+                    predicted = outputs.flatten()
+                    mutated = predicted[1:] - predicted[0]
+                    mutation.append(mutated.abs())
+                    gt_ret = predicted[0].view(-1) - targets.view(-1)
+                    pred_ret.append(gt_ret.abs())
+                else:
+                    _, predicted = outputs.max(1)
+                    mutated_mask = (predicted[1:] != predicted[0])
+                    mutation.append(mutated_mask.long())
+                    pred_ret.append(predicted[0].eq(targets).long())
+
                 features.append(torch.stack(feature_container, dim=-1)[0])
-                mutation.append(mutated_mask.long())
-                pred_ret.append(predicted[0].eq(targets).long())
                 pbar.update(1)
         result[f'sample{idx}'] = {  # type: ignore
             'features': torch.stack(features).cpu(),
@@ -173,6 +194,7 @@ def furret_extract_features(opt, model, device):
 def main():
     opt = parser.add_dispatch(dispatcher).parse_args()
     print(opt)
+    guard_folder(opt)
 
     device = get_device(opt)
     model = load_model(opt).to(device)

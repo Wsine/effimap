@@ -3,7 +3,7 @@ import os
 import torch
 import torchvision
 
-from utils import get_output_location, load_object
+from utils import get_output_location, load_object, rsetattr
 
 
 def load_model(opt):
@@ -17,12 +17,24 @@ def load_model(opt):
         model.avgpool = torch.nn.AdaptiveAvgPool2d(1)
         num_ftrs = model.fc.in_features
         model.fc = torch.nn.Linear(num_ftrs, 200)
+        model.conv1 = torch.nn.Conv2d(3,64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
+        model.maxpool = torch.nn.Sequential()
         if os.path.exists(get_output_location(opt, 'finetune_model.pt')):
             state = load_object(opt, 'finetune_model.pt')
             model.load_state_dict(state['net'])  # type: ignore
             print('Finetune weights loaded.')
     else:
         model = torch.hub.load('models', opt.model, source='local', pretrained=True)
+
+    if opt.task == 'regress':
+        last_fc = [(n, m) for n, m in model.named_modules() if isinstance(m, torch.nn.Linear)][-1]
+        name, module = last_fc
+        rsetattr(model, name, torch.nn.Linear(module.in_features, out_features=1, bias=True))
+        if os.path.exists(get_output_location(opt, 'regressor_model.pt')):
+            state = load_object(opt, 'regressor_model.pt')
+            model.load_state_dict(state['net'])  # type: ignore
+            print('Regressor weights loaded.')
+
     return model
 
 

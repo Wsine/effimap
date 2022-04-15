@@ -22,7 +22,8 @@ def load_dataset(opt, split, single_class=None, filter_idx=None, download=True):
         dataset = torchvision.datasets.SVHN(
             root=opt.data_dir, download=download,
             split='train' if split == 'train' else 'test',
-            transform=T.Compose(trsf)
+            transform=T.Compose(trsf),
+            target_transform=lambda t: int(t) - 1
         )
     elif opt.dataset == 'stl10':
         mean = std = (0.5, 0.5, 0.5)
@@ -57,8 +58,8 @@ def load_dataset(opt, split, single_class=None, filter_idx=None, download=True):
         )
     elif opt.dataset == 'tinyimagenet':
         trsf = ([T.RandomHorizontalFlip()] if train is True else []) \
-            + [T.Resize(224, T.InterpolationMode.BICUBIC), T.ToTensor()]  # type: ignore
-            #  + [T.ToTensor()]  # type: ignore
+            + [T.ToTensor()]  # type: ignore
+            #  + [T.Resize(224, T.InterpolationMode.BICUBIC), T.ToTensor()]  # type: ignore
         dataset = TinyImageNetDataset(
             root_dir=opt.data_dir, download=download,
             # there are no labels in test split
@@ -68,7 +69,7 @@ def load_dataset(opt, split, single_class=None, filter_idx=None, download=True):
     else:
         raise ValueError('Invalid dataset name')
 
-    labels_key = 'labels' if opt.dataset == 'stl10' else 'targets'
+    labels_key = 'labels' if opt.dataset in ('stl10', 'svhn') else 'targets'
     if split == 'train':
         pass
     elif split == 'val':

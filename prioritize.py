@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import pandas as pd
 from sklearn import metrics
+import numpy as np
 
 from dataset import load_dataloader
 from model import get_device, load_model
@@ -15,6 +16,13 @@ from utils import *
 
 
 dispatcher = AttrDispatcher('prioritor')
+
+
+def auc_for_regression(y):
+    area_y = np.trapz(np.cumsum(y.to_numpy()))
+    z = np.cumsum(np.sort(y.to_numpy())[::-1])
+    max_area_y = np.trapz(z)
+    return area_y / max_area_y
 
 
 @dispatcher.register('gini')
@@ -61,31 +69,49 @@ def estimator_with_mutation_score(opt, model, dataloader, device):
 
     df = pd.DataFrame()
     correct, total = 0, 0
+    features_pool, equals_pool = [], []
     for inputs, targets in tqdm(dataloader, desc='Validate'):
         inputs, targets = inputs.to(device), targets.to(device)
         feature_container.clear()
         outputs = model(inputs)
-        features = torch.stack(feature_container, dim=-1).cpu().numpy()
-        mutation = mutation_model.predict(features)  # type: ignore
+        features = torch.stack(feature_container, dim=-1).cpu()
+        features_pool.append(features)
 
-        _, predicted = outputs.max(1)
-        equals = predicted.eq(targets)
-        correct += equals.sum().item()
+        if opt.task == 'regress':
+            predicted = outputs.flatten()
+            delta = predicted.view(-1) - targets.view(-1)
+            equals_pool.append(delta.abs().cpu())
+            correct += delta.abs().sum().item()
+        else:
+            _, predicted = outputs.max(1)
+            equals = predicted.eq(targets).cpu()
+            equals_pool.append(equals)
+            correct += equals.sum().item()
         total += targets.size(0)
 
-        for m, e in zip(mutation, equals):
-            df = df.append({
-                'mutation_score': m.sum(),
-                'actual': (~e).item()
-            }, ignore_index=True)
+    features_pool = torch.cat(features_pool)
+    equals_pool = torch.cat(equals_pool)
+    mutations = mutation_model.predict(features_pool.numpy())  # type: ignore
+
+    for m, e in zip(mutations, equals_pool):
+        df = df.append({
+            'mutation_score': m.sum(),
+            'actual': e.item() if opt.task == 'regress' else (~e).item()
+        }, ignore_index=True)
 
     # statistic result
-    print('test acc: {:.2f}%'.format(100. * correct / total))
-
-    df = df.astype({'mutation_score': float, 'actual': int})
-    fpr, tpr, _ = metrics.roc_curve(df['actual'], df['mutation_score'])
-    auc = metrics.auc(fpr, tpr)
-    print('auc for mutation score: {:.2f}%'.format(100. * auc))
+    if opt.task == 'regress':
+        df = df.astype({'mutation_score': float, 'actual': float})
+        df.sort_values(by=['mutation_score'], ascending=False, inplace=True)
+        print('test mse: {:.8f}'.format(correct / total))
+        auc = auc_for_regression(df['actual'])
+        print('auc for mutation score: {:.2f}%'.format(100. * auc))
+    else:
+        print('test acc: {:.2f}%'.format(100. * correct / total))
+        df = df.astype({'mutation_score': float, 'actual': int})
+        fpr, tpr, _ = metrics.roc_curve(df['actual'], df['mutation_score'])
+        auc = metrics.auc(fpr, tpr)
+        print('auc for mutation score: {:.2f}%'.format(100. * auc))
 
 
 @dispatcher.register('furret-2')
@@ -162,6 +188,7 @@ def prima_method(opt, *_):
 
     ranking_model = load_object(opt, 'prima_ranking_model.pkl')
     rank = ranking_model.predict(X)  # type: ignore
+    #  rank = X.sum(axis=1) * -1.
 
     fpr, tpr, _ = metrics.roc_curve(Y, rank)
     auc = metrics.auc(fpr, tpr)
