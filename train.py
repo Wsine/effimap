@@ -341,6 +341,93 @@ def convert_model_as_regressor(opt):
     return None, ''
 
 
+@dispatcher.register('dissector')
+def train_dissector_model(opt):
+    device = get_device(opt)
+    model = load_model(opt).to(device)
+    dataloader = {
+        'train': load_dataloader(opt, split='train'),
+        'val': load_dataloader(opt, split='val')
+    }
+    model.eval()
+
+    hook_vec = {}
+    def _hook_on_layer(lname):
+        def __hook(module, inputs, outputs):
+            hook_vec[lname] = outputs.detach().flatten(start_dim=1)
+        return __hook
+
+    hook_snapshotor = {}
+    if opt.dataset == 'cifar100' and opt.model == 'resnet32':
+        hook_layers = ['relu', 'layer1', 'layer2', 'layer3']
+    elif opt.dataset == 'tinyimagenet' and opt.model == 'resnet18':
+        hook_layers = ['relu', 'layer1', 'layer2', 'layer3', 'layer4']
+    else:
+        raise ValueError('Not supported combinations now')
+    for lname in hook_layers:
+        module = rgetattr(model, lname)
+        module.register_forward_hook(_hook_on_layer(lname))
+    batch_inputs, _ = next(iter(dataloader['val']))
+    model(batch_inputs.to(device))
+    for lname in hook_layers:
+        in_features = hook_vec[lname].size(1)
+        out_features = opt.num_classes
+        snapshotor = torch.nn.Linear(in_features, out_features).to(device)
+        optimizer = torch.optim.SGD(snapshotor.parameters(), lr=0.001, momentum=0.9)
+        hook_snapshotor[lname] = {
+            'model': snapshotor,
+            'optim': optimizer,
+            'best_acc': 0,
+            'running_loss': 0,
+            'correct': 0
+        }
+    criterion = torch.nn.CrossEntropyLoss()
+
+    num_epochs = 10
+    for epoch in range(num_epochs):
+        print('Epoch {}/{}'.format(epoch+1, num_epochs))
+        for phase in ('train', 'val'):
+            for k in hook_snapshotor.keys():
+                if phase == 'train':
+                    hook_snapshotor[k]['model'].train()
+                else:
+                    hook_snapshotor[k]['model'].eval()
+                hook_snapshotor[k]['running_loss'] = 0
+                hook_snapshotor[k]['correct'] = 0
+
+            total = 0
+            for inputs, targets in tqdm(dataloader[phase], desc=phase):
+                inputs, targets = inputs.to(device), targets.to(device)
+                for k in hook_snapshotor.keys():
+                    hook_snapshotor[k]['optim'].zero_grad()
+                with torch.set_grad_enabled(phase == 'train'):
+                    model(inputs)
+                    for k in hook_snapshotor.keys():
+                        sinputs = hook_vec[k]
+                        outputs = hook_snapshotor[k]['model'](sinputs)
+                        _, preds = outputs.max(1)
+                        loss = criterion(outputs, targets)
+                        if phase == 'train':
+                            loss.backward()
+                            hook_snapshotor[k]['optim'].step()
+                        hook_snapshotor[k]['running_loss'] += loss.item()
+                        hook_snapshotor[k]['correct'] += \
+                                preds.eq(targets).sum().item()
+                total += targets.size(0)
+
+            if phase == 'val':
+                for k in hook_snapshotor.keys():
+                    acc = 100. * hook_snapshotor[k]['correct'] / total
+                    if acc > hook_snapshotor[k]['best_acc']:
+                        print(f'Updated snapshotor {k} with acc: {acc:.4f}%...')
+                        hook_snapshotor[k]['best_acc'] = acc
+    state = {
+        k: {'net': hook_snapshotor[k]['model'].state_dict()}
+        for k in hook_snapshotor.keys()
+    }
+    return state, 'snapshotors.pt'
+
+
 def main():
     opt = parser.add_dispatch(dispatcher).parse_args()
     print(opt)
