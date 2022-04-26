@@ -20,13 +20,15 @@ class ArgsWrapper(argparse.ArgumentParser):
             opt.num_classes = 100
         elif opt.dataset == 'tinyimagenet':
             opt.num_classes = 200
+        elif opt.dataset == 'tinyimagenet-trf':
+            opt.num_classes = 100
         else:
             raise ValueError('Invalid dataset name')
         return opt
 
 
 devices = ['cpu', 'cuda']
-datasets = ['cifar10', 'cifar100', 'mnist', 'svhn', 'stl10', 'tinyimagenet']
+datasets = ['cifar10', 'cifar100', 'mnist', 'svhn', 'stl10', 'tinyimagenet', 'tinyimagenet-trf']
 models = ['resnet32', 'mlp', 'svhn', 'stl10', 'resnet18', 'resnet20']
 tasks = ['classify', 'regress']
 

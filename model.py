@@ -11,17 +11,22 @@ def load_model(opt):
         model_hub = 'chenyaofo/pytorch-cifar-models'
         model_name = f'{opt.dataset}_{opt.model}'
         model = torch.hub.load(model_hub, model_name, pretrained=True)
-    elif opt.dataset == 'tinyimagenet':
+    elif 'tinyimagenet' in opt.dataset:
         # refer from: https://github.com/tjmoon0104/Tiny-ImageNet-Classifier
         model = getattr(torchvision.models, opt.model)(pretrained=True)
         model.avgpool = torch.nn.AdaptiveAvgPool2d(1)
         num_ftrs = model.fc.in_features
-        model.fc = torch.nn.Linear(num_ftrs, 200)
+        model.fc = torch.nn.Linear(num_ftrs, opt.num_classes)
         model.conv1 = torch.nn.Conv2d(3,64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
         model.maxpool = torch.nn.Sequential()
         if os.path.exists(get_output_location(opt, 'finetune_model.pt')):
             state = load_object(opt, 'finetune_model.pt')
-            model.load_state_dict(state['net'])  # type: ignore
+            restrict = True
+            if state['net']['fc.weight'].size() != model.fc.weight.size():  # type: ignore
+                state['net'].pop('fc.weight', None)  # type: ignore
+                state['net'].pop('fc.bias', None)  # type: ignore
+                restrict = False
+            model.load_state_dict(state['net'], strict=restrict)  # type: ignore
             print('Finetune weights loaded.')
     else:
         model = torch.hub.load('models', opt.model, source='local', pretrained=True)

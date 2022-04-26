@@ -6,7 +6,8 @@ from sklearn.model_selection import train_test_split
 
 from datasets.tinyimagenet import TinyImageNetDataset
 
-def load_dataset(opt, split, single_class=None, filter_idx=None, download=True):
+
+def load_dataset(opt, split, download=True):
     train = True if split == 'train' else False
 
     if opt.dataset == 'mnist':
@@ -56,15 +57,18 @@ def load_dataset(opt, split, single_class=None, filter_idx=None, download=True):
             root=opt.data_dir, train=train, download=download,
             transform=T.Compose(trsf)
         )
-    elif opt.dataset == 'tinyimagenet':
+    elif 'tinyimagenet' in opt.dataset:
         trsf = ([T.RandomHorizontalFlip()] if train is True else []) \
             + [T.ToTensor()]  # type: ignore
             #  + [T.Resize(224, T.InterpolationMode.BICUBIC), T.ToTensor()]  # type: ignore
+        # trg_trsf = (lambda y: y - 100) if 'trf' in opt.dataset else None
+        trg_trsf = None
         dataset = TinyImageNetDataset(
             root_dir=opt.data_dir, download=download,
             # there are no labels in test split
             mode='train' if train is True else 'val',
-            transform=T.Compose(trsf)
+            transform=T.Compose(trsf),
+            target_transform=trg_trsf
         )
     else:
         raise ValueError('Invalid dataset name')
@@ -81,14 +85,9 @@ def load_dataset(opt, split, single_class=None, filter_idx=None, download=True):
     else:
         raise ValueError('Invalid split parameter')
 
-    if single_class is not None:
-        clx_indices = [
-            i for i, (_, y) in enumerate(dataset)  # type: ignore
-            if y == single_class
-        ]
+    if opt.dataset == 'tinyimagenet-trf':
+        clx_indices = [i for i, (_, y) in enumerate(dataset) if y >= 0 and y < 100]  # type: ignore
         dataset = torch.utils.data.Subset(dataset, clx_indices)  # type: ignore
-    if filter_idx is not None:
-        dataset = torch.utils.data.Subset(dataset, filter_idx)  # type: ignore
 
     return dataset
 
