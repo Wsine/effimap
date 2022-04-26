@@ -93,9 +93,10 @@ def load_dataset(opt, split, single_class=None, filter_idx=None, download=True):
     return dataset
 
 
-def load_dataloader(opt, split, sampler=None, **kwargs):
+def load_dataloader(opt, split, sampler=None, shuffle=None, **kwargs):
     dataset = load_dataset(opt, split, **kwargs)
-    shuffle = True if split == 'train' else False
+    if shuffle is None:
+        shuffle = True if split == 'train' else False
     dataloader = torch.utils.data.DataLoader(
         dataset,  # type: ignore
         sampler=sampler,

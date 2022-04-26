@@ -99,7 +99,7 @@ def train_autoencoder_model(opt):
     device = get_device(opt)
     model = load_model(opt).to(device)
     model.eval()
-    valloader = load_dataloader(opt, split='val')
+    valloader = load_dataloader(opt, split='val', shuffle=True)
     sample_img = next(iter(valloader))[0][0]
     img_channels, img_size = sample_img.size(0), sample_img.size(-1)
     if img_size < 32:
@@ -138,17 +138,22 @@ def train_autoencoder_model(opt):
                     outputs = encoder(inputs)
                     noises = torch.stack([
                         torch.zeros_like(inputs[0]) if e else \
-                        torch.logical_and(
-                            torch.bernoulli(
-                                torch.zeros_like(inputs[0]).fill_(0.1)),
-                            torch.normal(0, 0.8, inputs[0].size()).to(device)
-                        )
+                        # torch.logical_and(
+                        #     torch.bernoulli(
+                        #         torch.zeros_like(inputs[0]).fill_(0.1)),
+                        #     torch.normal(0, 0.8, inputs[0].size()).to(device)
+                        # )
+                        torch.normal(0, 0.8, inputs[0].size()).to(device)
                         for e in equals
                     ])
                     outputs[0] = outputs[0] + noises
                     tloss = encoder.loss_function(*outputs, M_N=0.00025)
-                    tloss['loss'].backward()
+                    ploss = torch.logical_xor(
+                        model(outputs[0]).max(1).indices.eq(predicted), equals).sum()
+                    # tloss['loss'].backward()
+                    (ploss + tloss['loss']).backward()
                     optimizer.step()
+                    loss += (tloss['loss'].item() + ploss.item())
                 else:
                     with torch.no_grad():
                         outputs = encoder(inputs)
@@ -156,8 +161,9 @@ def train_autoencoder_model(opt):
                         for i, o in enumerate(outputs):
                             outputs[i] = o[indices]
                         tloss = encoder.loss_function(*outputs, M_N=1.0)
+                    loss += tloss['loss'].item()
 
-                loss += tloss['loss'].item()
+                # loss += tloss['loss'].item()
                 rec_err += tloss['Reconstruction_Loss'].item()
                 avg_loss = loss / (batch_idx + 1)
                 avg_rec_err = rec_err / (batch_idx + 1)
