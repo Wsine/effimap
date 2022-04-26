@@ -1,3 +1,4 @@
+import time
 import copy
 
 import torch
@@ -69,6 +70,8 @@ def estimator_with_mutation_score(opt, model, dataloader, device):
 
     mutation_model = load_object(opt, 'mutation_estimator.pkl')
 
+    start_time = time.time()
+
     df = pd.DataFrame()
     correct, total = 0, 0
     features_pool, equals_pool = [], []
@@ -93,6 +96,7 @@ def estimator_with_mutation_score(opt, model, dataloader, device):
 
     features_pool = torch.cat(features_pool)
     equals_pool = torch.cat(equals_pool)
+    second_time = time.time()
     mutations = mutation_model.predict(features_pool.numpy())  # type: ignore
 
     for m, e in zip(mutations, equals_pool):
@@ -125,6 +129,9 @@ def estimator_with_mutation_score(opt, model, dataloader, device):
         fpr, tpr, _ = metrics.roc_curve(df['actual'], df['furret'])
         auc = metrics.auc(fpr, tpr)
         print('rauc for furret all: {:.2f}%'.format(100. * auc))
+    third_time = time.time()
+    print('time for feature extraction = ', second_time - start_time)
+    print('time for learing to rank = ', third_time - second_time)
 
 
 @dispatcher.register('furret2')
@@ -200,8 +207,9 @@ def prima_method(opt, *_):
     print('[info] data loaded.')
 
     ranking_model = load_object(opt, 'prima_ranking_model.pkl')
+    start_time = time.time()
     rank = ranking_model.predict(X)  # type: ignore
-    #  rank = X.sum(axis=1) * -1.
+    second_time = time.time()
 
     if opt.task == 'regress':
         sort_inds = rank.argsort()
@@ -224,12 +232,17 @@ def prima_method(opt, *_):
         fpr, tpr, _ = metrics.roc_curve(Y, rank)
         auc = metrics.auc(fpr, tpr)
         print('rauc for prima all: {:.2f}%'.format(100. * auc))
+    third_time = time.time()
+    print('time for feature extraction = ', second_time - start_time)
+    print('time for learing to rank = ', third_time - second_time)
 
 
 @dispatcher.register('dissector')
 @torch.no_grad()
 def dissector_method(opt, model, dataloader, device):
     model.eval()
+
+    start_time = time.time()
 
     hook_vec = {}
     def _hook_on_layer(lname):
@@ -297,6 +310,9 @@ def dissector_method(opt, model, dataloader, device):
     fpr, tpr, _ = metrics.roc_curve(df['actual'], df['dissector'])
     auc = metrics.auc(fpr, tpr)
     print('rauc for dissector all: {:.2f}%'.format(100. * auc))
+
+    second_time = time.time()
+    print('ranking time = ', second_time - start_time)
 
 
 def main():

@@ -1,5 +1,6 @@
 import copy
 import random
+import time
 
 import torch
 import torch.nn as nn
@@ -72,101 +73,21 @@ def prima_extract_features(opt, model, device):
     model.eval()
     valloader = load_dataloader(opt, split=opt.prima_split)
 
-    input_feat_path = get_output_location(
-            opt, f'prima_input_features_{opt.prima_split}.pt')
-    if not os.path.exists(input_feat_path):
-        input_features = []
-        for inputs, _ in tqdm(valloader, desc='Input Mutants'):
-            if opt.task == 'regress':
-                pred0 = model(inputs.to(device)).flatten()
-            else:
-                output0 = model(inputs.to(device))
-                prob0 = F.softmax(output0, dim=1)
-                _, pred0 = output0.max(1)
-            for i, input in enumerate(inputs):
-                input_mutants = get_input_mutants(opt, input).to(device)
-                if opt.task == 'regress':
-                    pred = model(input_mutants).flatten()
-                    diff = (pred - pred0[i]).abs()
-                    f2a = diff.mean()
-                    f2b = [
-                        torch.logical_and(diff > s, diff < s + 0.1).sum()
-                        for s in torch.linspace(0, 1, steps=10)
-                    ]
-                    feat = torch.Tensor([f2a, *f2b])
-                else:
-                    output = model(input_mutants)
-                    prob = F.softmax(output, dim=1)
-                    _, pred = output.max(1)
-                    f1a = pred.ne(pred0[i]).sum()
-                    f1b = pred.unique().size(0) - 1
-                    _, cnt = pred.unique(return_counts=True)
-                    f1c = cnt[cnt.topk(2).indices[-1]] if cnt.size(0) > 1 else cnt[0]
-                    dist = F.cosine_similarity(
-                        prob, prob0[i].repeat(prob.size(0), 1))  # type: ignore
-                    f2a = dist.mean()
-                    f2b = [
-                        torch.logical_and(dist > s, dist < s + 0.1).sum()
-                        for s in torch.linspace(0, 1, steps=10)
-                    ]
-                    f2c = (prob[:, pred0[i]] - prob0[i, pred0[i]]).mean()  # type: ignore
-                    feat = torch.Tensor([f1a, f1b, f1c, f2a, *f2b, f2c])
-                input_features.append(feat.cpu())
-        input_features = torch.stack(input_features)
-        torch.save({'feats': input_features}, input_feat_path)
+    start_time = time.time()
 
-    feat_target_path = get_output_location(
-            opt, f'prima_feature_target_{opt.prima_split}.pt')
-    model_feat_path = get_output_location(
-            opt, f'prima_model_features_{opt.prima_split}.pt')
-    if not os.path.exists(model_feat_path):
-        prob0, pred0, equals = [], [], []
-        for inputs, targets in tqdm(valloader, desc='Original Model'):
-            inputs, targets = inputs.to(device), targets.to(device)
+    input_features = []
+    for inputs, _ in tqdm(valloader, desc='Input Mutants'):
+        if opt.task == 'regress':
+            pred0 = model(inputs.to(device)).flatten()
+        else:
+            output0 = model(inputs.to(device))
+            prob0 = F.softmax(output0, dim=1)
+            _, pred0 = output0.max(1)
+        for i, input in enumerate(inputs):
+            input_mutants = get_input_mutants(opt, input).to(device)
             if opt.task == 'regress':
-                prob0.append(torch.zeros((inputs.size(0), opt.num_classes)))  # useless
-                pred = model(inputs).flatten()
-                pred0.append(pred)
-                delta = pred.view(-1) - targets.view(-1)
-                equals.append(delta.abs())
-            else:
-                output = model(inputs)
-                prob = F.softmax(output, dim=1)
-                prob0.append(prob)
-                _, pred = output.max(1)
-                pred0.append(pred)
-                equals.append(pred.eq(targets))
-        equals = torch.cat(equals).cpu()
-        torch.save({'equals': equals}, feat_target_path)
-
-        model_probs, model_preds = [], []
-        for mutant in tqdm(
-                get_model_mutants(opt, model.cpu()),
-                desc='Model Mutants', total=opt.num_model_mutants):
-            mutant.eval()
-            mutant = mutant.to(device)
-            probs, preds = [], []
-            for inputs, _ in tqdm(valloader, desc='Inference', leave=False):
-                if opt.task == 'regress':
-                    prob = torch.zeros((inputs.size(0), opt.num_classes))  # useless
-                    pred = mutant(inputs.to(device)).flatten()
-                else:
-                    output = mutant(inputs.to(device))
-                    prob = F.softmax(output, dim=1)
-                    _, pred = output.max(1)
-                probs.append(prob)
-                preds.append(pred)
-            model_probs.append(torch.cat(probs))
-            model_preds.append(torch.cat(preds))
-        model_probs = torch.stack(model_probs, dim=1)
-        model_preds = torch.stack(model_preds, dim=-1)
-
-        prob0 = torch.cat(prob0)
-        pred0 = torch.cat(pred0)
-        model_features = []
-        for prob, pred, po0, pe0 in zip(model_probs, model_preds, prob0, pred0):
-            if opt.task == 'regress':
-                diff = (pred - pe0).abs()
+                pred = model(input_mutants).flatten()
+                diff = (pred - pred0[i]).abs()
                 f2a = diff.mean()
                 f2b = [
                     torch.logical_and(diff > s, diff < s + 0.1).sum()
@@ -174,21 +95,99 @@ def prima_extract_features(opt, model, device):
                 ]
                 feat = torch.Tensor([f2a, *f2b])
             else:
-                f1a = pred.ne(pe0).sum()
+                output = model(input_mutants)
+                prob = F.softmax(output, dim=1)
+                _, pred = output.max(1)
+                f1a = pred.ne(pred0[i]).sum()
                 f1b = pred.unique().size(0) - 1
                 _, cnt = pred.unique(return_counts=True)
                 f1c = cnt[cnt.topk(2).indices[-1]] if cnt.size(0) > 1 else cnt[0]
-                dist = F.cosine_similarity(prob, po0.repeat(prob.size(0), 1))
+                dist = F.cosine_similarity(
+                    prob, prob0[i].repeat(prob.size(0), 1))  # type: ignore
                 f2a = dist.mean()
                 f2b = [
                     torch.logical_and(dist > s, dist < s + 0.1).sum()
                     for s in torch.linspace(0, 1, steps=10)
                 ]
-                f2c = (prob[:, pe0] - po0[pe0]).mean()
+                f2c = (prob[:, pred0[i]] - prob0[i, pred0[i]]).mean()  # type: ignore
                 feat = torch.Tensor([f1a, f1b, f1c, f2a, *f2b, f2c])
-            model_features.append(feat.cpu())
-        model_features = torch.stack(model_features)
-        torch.save({'feats': model_preds}, model_feat_path)
+            input_features.append(feat.cpu())
+    input_features = torch.stack(input_features)
+
+    second_time = time.time()
+
+    prob0, pred0, equals = [], [], []
+    for inputs, targets in tqdm(valloader, desc='Original Model'):
+        inputs, targets = inputs.to(device), targets.to(device)
+        if opt.task == 'regress':
+            prob0.append(torch.zeros((inputs.size(0), opt.num_classes)))  # useless
+            pred = model(inputs).flatten()
+            pred0.append(pred)
+            delta = pred.view(-1) - targets.view(-1)
+            equals.append(delta.abs())
+        else:
+            output = model(inputs)
+            prob = F.softmax(output, dim=1)
+            prob0.append(prob)
+            _, pred = output.max(1)
+            pred0.append(pred)
+            equals.append(pred.eq(targets))
+    equals = torch.cat(equals).cpu()
+
+    model_probs, model_preds = [], []
+    for mutant in tqdm(
+            get_model_mutants(opt, model.cpu()),
+            desc='Model Mutants', total=opt.num_model_mutants):
+        mutant.eval()
+        mutant = mutant.to(device)
+        probs, preds = [], []
+        for inputs, _ in tqdm(valloader, desc='Inference', leave=False):
+            if opt.task == 'regress':
+                prob = torch.zeros((inputs.size(0), opt.num_classes))  # useless
+                pred = mutant(inputs.to(device)).flatten()
+            else:
+                output = mutant(inputs.to(device))
+                prob = F.softmax(output, dim=1)
+                _, pred = output.max(1)
+            probs.append(prob)
+            preds.append(pred)
+        model_probs.append(torch.cat(probs))
+        model_preds.append(torch.cat(preds))
+    model_probs = torch.stack(model_probs, dim=1)
+    model_preds = torch.stack(model_preds, dim=-1)
+
+    prob0 = torch.cat(prob0)
+    pred0 = torch.cat(pred0)
+    model_features = []
+    for prob, pred, po0, pe0 in zip(model_probs, model_preds, prob0, pred0):
+        if opt.task == 'regress':
+            diff = (pred - pe0).abs()
+            f2a = diff.mean()
+            f2b = [
+                torch.logical_and(diff > s, diff < s + 0.1).sum()
+                for s in torch.linspace(0, 1, steps=10)
+            ]
+            feat = torch.Tensor([f2a, *f2b])
+        else:
+            f1a = pred.ne(pe0).sum()
+            f1b = pred.unique().size(0) - 1
+            _, cnt = pred.unique(return_counts=True)
+            f1c = cnt[cnt.topk(2).indices[-1]] if cnt.size(0) > 1 else cnt[0]
+            dist = F.cosine_similarity(prob, po0.repeat(prob.size(0), 1))
+            f2a = dist.mean()
+            f2b = [
+                torch.logical_and(dist > s, dist < s + 0.1).sum()
+                for s in torch.linspace(0, 1, steps=10)
+            ]
+            f2c = (prob[:, pe0] - po0[pe0]).mean()
+            feat = torch.Tensor([f1a, f1b, f1c, f2a, *f2b, f2c])
+        model_features.append(feat.cpu())
+    model_features = torch.stack(model_features)
+
+    third_time = time.time()
+
+    print('time for input_mutation = ', second_time - start_time)
+    print('time for model_mutation = ', third_time - second_time)
 
 
 @dispatcher.register('furret')
