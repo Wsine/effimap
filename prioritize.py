@@ -60,7 +60,7 @@ def gini_method(_, model, dataloader, device):
     print('auc for gini: {:.2f}%'.format(100. * auc))
 
 
-@dispatcher.register('furret-1')
+@dispatcher.register('furret')
 @torch.no_grad()
 def estimator_with_mutation_score(opt, model, dataloader, device):
     for module in model.modules():
@@ -97,26 +97,37 @@ def estimator_with_mutation_score(opt, model, dataloader, device):
 
     for m, e in zip(mutations, equals_pool):
         df = df.append({
-            'mutation_score': m.sum(),
+            'furret': m.sum(),
             'actual': e.item() if opt.task == 'regress' else (~e).item()
         }, ignore_index=True)
 
     # statistic result
     if opt.task == 'regress':
-        df = df.astype({'mutation_score': float, 'actual': float})
-        df.sort_values(by=['mutation_score'], ascending=True, inplace=True)
         print('test mse: {:.8f}'.format(correct / total))
+        df = df.astype({'furret': float, 'actual': float})
+        df.sort_values(by=['furret'], ascending=True, inplace=True)
+        for r in [0.1, 0.2, 0.3, 0.5]:
+            sub_seq = int(df.size * r)
+            auc = auc_for_regression(df.head(sub_seq)['actual'])
+            print('rauc for furret {:.2f}%: {:.2f}%'.format(r * 100, 100. * auc))
         auc = auc_for_regression(df['actual'])
         print('auc for mutation score: {:.2f}%'.format(100. * auc))
     else:
         print('test acc: {:.2f}%'.format(100. * correct / total))
-        df = df.astype({'mutation_score': float, 'actual': int})
-        fpr, tpr, _ = metrics.roc_curve(df['actual'], df['mutation_score'])
+        df = df.astype({'furret': float, 'actual': int})
+        df.sort_values(by=['furret'], ascending=True, inplace=True)
+        for r in [0.1, 0.2, 0.3, 0.5]:
+            sub_seq = int(df.size * r)
+            fpr, tpr, _ = metrics.roc_curve(
+                df.head(sub_seq)['actual'], df.head(sub_seq)['furret'])
+            auc = metrics.auc(fpr, tpr)
+            print('rauc for furret {:.2f}%: {:.2f}%'.format(r * 100, 100. * auc))
+        fpr, tpr, _ = metrics.roc_curve(df['actual'], df['furret'])
         auc = metrics.auc(fpr, tpr)
-        print('auc for mutation score: {:.2f}%'.format(100. * auc))
+        print('rauc for furret all: {:.2f}%'.format(100. * auc))
 
 
-@dispatcher.register('furret-2')
+@dispatcher.register('furret2')
 @torch.no_grad()
 def estimator_with_multi_mutation_score(opt, model, dataloader, device):
     model.eval()
@@ -195,11 +206,24 @@ def prima_method(opt, *_):
     if opt.task == 'regress':
         sort_inds = rank.argsort()
         Y = Y[sort_inds]
+        for r in [0.1, 0.2, 0.3, 0.5]:
+            sub_Y = Y[:int(len(Y) * r)]
+            auc = auc_for_regression(sub_Y)
+            print('rauc for prima {:.2f}%: {:.2f}%'.format(r * 100, 100. * auc))
         auc = auc_for_regression(Y)
+        print('rauc for prima all: {:.2f}%'.format(100. * auc))
     else:
+        sort_inds = rank.argsort()
+        Y = Y[sort_inds]
+        rank = rank[sort_inds]
+        for r in [0.1, 0.2, 0.3, 0.5]:
+            sub_seq = int(len(Y) * r)
+            fpr, tpr, _ = metrics.roc_curve(Y[:sub_seq], rank[:sub_seq])
+            auc = metrics.auc(fpr, tpr)
+            print('rauc for prima {:.2f}%: {:.2f}%'.format(r * 100, 100. * auc))
         fpr, tpr, _ = metrics.roc_curve(Y, rank)
         auc = metrics.auc(fpr, tpr)
-    print('auc for ranking model: {:.2f}%'.format(100. * auc))
+        print('rauc for prima all: {:.2f}%'.format(100. * auc))
 
 
 @dispatcher.register('dissector')
@@ -258,14 +282,21 @@ def dissector_method(opt, model, dataloader, device):
         equals = predicted.eq(targets)
         for p, e in zip(pvscore, equals):
             df = df.append({
-                'dissecotr': p.item(),
+                'dissector': p.item(),
                 'actual': e.item()
             }, ignore_index=True)
 
-    df = df.astype({'dissecotr': float, 'actual': int})
-    fpr, tpr, _ = metrics.roc_curve(df['actual'], df['dissecotr'])
+    df = df.astype({'dissector': float, 'actual': int})
+    df.sort_values(by=['dissector'], ascending=True, inplace=True)
+    for r in [0.1, 0.2, 0.3, 0.5]:
+        sub_seq = int(df.size * r)
+        fpr, tpr, _ = metrics.roc_curve(
+            df.head(sub_seq)['actual'], df.head(sub_seq)['dissector'])
+        auc = metrics.auc(fpr, tpr)
+        print('rauc for dissector {:.2f}%: {:.2f}%'.format(r * 100, 100. * auc))
+    fpr, tpr, _ = metrics.roc_curve(df['actual'], df['dissector'])
     auc = metrics.auc(fpr, tpr)
-    print('auc for dissector: {:.2f}%'.format(100. * auc))
+    print('rauc for dissector all: {:.2f}%'.format(100. * auc))
 
 
 def main():
