@@ -116,6 +116,7 @@ def train_autoencoder_model(opt):
     scheduler = torch.optim.lr_scheduler.ExponentialLR(
         optimizer, gamma=0.95
     )
+    blur = torchvision.transforms.GaussianBlur((3, 3), sigma=1.0)
 
     best_rec_err = 1e8
     for e in range(opt.epochs):
@@ -127,10 +128,16 @@ def train_autoencoder_model(opt):
             loss=0; rec_err=0
             tepoch = tqdm(valloader, desc=mode)
             for batch_idx, (inputs, targets) in enumerate(tepoch):
-                inputs, targets = inputs.to(device), targets.to(device)
+                if opt.dataset in ('ncifar10', 'ncifar100'):
+                    inputs = inputs.to(device)
+                else:
+                    inputs, targets = inputs.to(device), targets.to(device)
                 with torch.no_grad():
                     _, predicted = model(inputs).max(1)
-                equals = predicted.eq(targets)
+                if opt.dataset in ('ncifar10', 'ncifar100'):
+                    equals = targets[0].eq(targets[1]).to(device)
+                else:
+                    equals = predicted.eq(targets)
                 if pad is not None:
                     inputs = pad(inputs)
                 if mode == 'Train':
@@ -138,22 +145,24 @@ def train_autoencoder_model(opt):
                     outputs = encoder(inputs)
                     noises = torch.stack([
                         torch.zeros_like(inputs[0]) if e else \
-                        # torch.logical_and(
-                        #     torch.bernoulli(
-                        #         torch.zeros_like(inputs[0]).fill_(0.1)),
-                        #     torch.normal(0, 0.8, inputs[0].size()).to(device)
-                        # )
-                        torch.normal(0, 0.8, inputs[0].size()).to(device)
+                        torch.logical_and(
+                            torch.bernoulli(
+                                torch.zeros_like(inputs[0]).fill_(0.1)),
+                            torch.normal(0, 0.8, inputs[0].size()).to(device)
+                        )
+                        # torch.normal(0, 0.8, inputs[0].size()).to(device)
                         for e in equals
+                        # blur(outputs[0][i].detach()) - outputs[0][i]
+                        # for i, e in enumerate(equals)
                     ])
                     outputs[0] = outputs[0] + noises
                     tloss = encoder.loss_function(*outputs, M_N=0.00025)
-                    ploss = torch.logical_xor(
-                        model(outputs[0]).max(1).indices.eq(predicted), equals).sum()
-                    # tloss['loss'].backward()
-                    (ploss + tloss['loss']).backward()
+                    # ploss = torch.logical_xor(
+                    #     model(outputs[0]).max(1).indices.eq(predicted), equals).sum()
+                    tloss['loss'].backward()
+                    # (ploss + tloss['loss']).backward()
                     optimizer.step()
-                    loss += (tloss['loss'].item() + ploss.item())
+                    # loss += (tloss['loss'].item() + ploss.item())
                 else:
                     with torch.no_grad():
                         outputs = encoder(inputs)
@@ -161,9 +170,9 @@ def train_autoencoder_model(opt):
                         for i, o in enumerate(outputs):
                             outputs[i] = o[indices]
                         tloss = encoder.loss_function(*outputs, M_N=1.0)
-                    loss += tloss['loss'].item()
+                    # loss += tloss['loss'].item()
 
-                # loss += tloss['loss'].item()
+                loss += tloss['loss'].item()
                 rec_err += tloss['Reconstruction_Loss'].item()
                 avg_loss = loss / (batch_idx + 1)
                 avg_rec_err = rec_err / (batch_idx + 1)
@@ -234,16 +243,21 @@ def finetune_model(opt):
     guard_folder(opt)
     device = get_device(opt)
     model = load_model(opt).to(device)
+
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+    if 'tinyimagenet' in opt.dataset:
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+    else:
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.1, weight_decay=0.005, momentum=0.9)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.9)
 
     dataloader = {
         'train': load_dataloader(opt, split='train'),
         'val': load_dataloader(opt, split='val')
     }
 
-    num_epochs = 7
+    num_epochs = 7 if 'tinyimagenet' in opt.dataset else 100
     best_acc = 0
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch+1, num_epochs))
@@ -253,7 +267,11 @@ def finetune_model(opt):
             running_loss, correct, total = 0, 0, 0
             with tqdm(dataloader[phase], desc=phase) as tbar:
                 for batch_idx, (inputs, targets) in enumerate(tbar):
-                    inputs, targets = inputs.to(device), targets.to(device)
+                    inputs = inputs.to(device)
+                    if opt.dataset.startswith('ncifar'):
+                        targets = targets[0].to(device)
+                    else:
+                        targets = targets.to(device)
                     optimizer.zero_grad()
                     with torch.set_grad_enabled(phase == 'train'):
                         outputs = model(inputs)
@@ -366,6 +384,8 @@ def train_dissector_model(opt):
     hook_snapshotor = {}
     if opt.dataset == 'cifar100' and opt.model == 'resnet32':
         hook_layers = ['relu', 'layer1', 'layer2', 'layer3']
+    elif opt.dataset in ('ncifar10', 'ncifar100') and opt.model == 'resnet34':
+        hook_layers = ['layer1', 'layer2', 'layer3', 'layer4']
     elif opt.dataset == 'tinyimagenet' and opt.model == 'resnet18':
         hook_layers = ['relu', 'layer1', 'layer2', 'layer3', 'layer4']
     else:
@@ -403,7 +423,11 @@ def train_dissector_model(opt):
 
             total = 0
             for inputs, targets in tqdm(dataloader[phase], desc=phase):
-                inputs, targets = inputs.to(device), targets.to(device)
+                inputs = inputs.to(device)
+                if opt.dataset in ('ncifar10', 'ncifar100'):
+                    targets = targets[0 if phase == 'train' else 1].to(device)
+                else:
+                    targets = targets.to(device)
                 for k in hook_snapshotor.keys():
                     hook_snapshotor[k]['optim'].zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):

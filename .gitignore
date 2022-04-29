@@ -1,5 +1,10 @@
 cache
 .vim
-data
+data/*
 output
 archive
+
+# exclude
+!data/noisycifar
+!data/noisycifar.patch
+test.py

@@ -36,10 +36,16 @@ def estimator_with_mutation_score(opt, model, dataloader, device):
         features = torch.stack(feature_container, dim=-1).cpu()
         features_pool.append(features)
 
-        _, predicted = outputs.max(1)
-        equals = predicted.eq(targets).cpu()
-        equals_pool.append(equals)
-        correct += equals.sum().item()
+        if opt.task == 'regress':
+            predicted = outputs.flatten()
+            delta = predicted.view(-1) - targets.view(-1)
+            equals_pool.append(delta.abs().cpu())
+            correct += delta.abs().sum().item()
+        else:
+            _, predicted = outputs.max(1)
+            equals = predicted.eq(targets).cpu()
+            equals_pool.append(equals)
+            correct += equals.sum().item()
         total += targets.size(0)
 
     features_pool = torch.cat(features_pool)
@@ -53,13 +59,23 @@ def estimator_with_mutation_score(opt, model, dataloader, device):
         }, ignore_index=True)
 
     # statistic result
-    print('test acc: {:.2f}%'.format(100. * correct / total))
-    df = df.astype({'furret': float, 'actual': int})
-    # for t in range(5, opt.num_model_mutants, 5)[::-1]:
-    for t in range(1, 20 + 1)[::-1]:
-        sub_df = df.query("furret < {}".format(t))
-        print('test acc of {}: {:.2f}%'.format(
-              t, 100. * sub_df['actual'].sum() / len(sub_df)))  # type: ignore
+    if opt.task == 'regress':
+        print('test mse: {:.8f}'.format(correct / total))
+        df = df.astype({'furret': float, 'actual': float})
+        actual_numpy = df['actual'].to_numpy()
+        indices = np.argsort(actual_numpy)
+        for t in range(1, 10 + 1)[::-1]:
+            sub_df = df.query("furret < {}".format(t * 0.1))
+            print('test mse of {}: {:.8f}'.format(
+                t, actual_numpy[indices[:len(sub_df)]].sum() / len(sub_df)))  # type: ignore
+    else:
+        print('test acc: {:.2f}%'.format(100. * correct / total))
+        df = df.astype({'furret': float, 'actual': int})
+        for t in range(5, 40, 4)[::-1]:
+        # for t in range(1, 20 + 1)[::-1]:
+            sub_df = df.query("furret < {}".format(t))
+            print('test acc of {}: {:.2f}%'.format(
+                  t, 100. * sub_df['actual'].sum() / len(sub_df)))  # type: ignore
 
 
 @dispatcher.register('dissector')

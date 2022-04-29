@@ -25,11 +25,13 @@ def get_model_mutants(opt, model):
         fixed_random = random.Random(opt.seed + i)
         op = mutate_ops[i % len(mutate_ops)]
         if op == 'NAI':
-            selected_layer = fixed_random.choice([
+            modules = [
                 m for m in mutant.modules()
                 if isinstance(m, (nn.ReLU, nn.LeakyReLU, nn.Sigmoid, nn.Tanh))
-            ])
-            selected_layer.register_forward_pre_hook(NAI_hook(opt.seed + i))
+            ]
+            if len(modules) > 0:
+                selected_layer = fixed_random.choice(modules)
+                selected_layer.register_forward_pre_hook(NAI_hook(opt.seed + i))
         else:
             selected_layer = fixed_random.choice([
                 m for m in mutant.modules() if hasattr(m, 'weight') and torch.is_tensor(m.weight)
@@ -122,7 +124,10 @@ def prima_extract_features(opt, model, device):
     if not os.path.exists(model_feat_path):
         prob0, pred0, equals = [], [], []
         for inputs, targets in tqdm(valloader, desc='Original Model'):
-            inputs, targets = inputs.to(device), targets.to(device)
+            if opt.dataset in ('ncifar10', 'ncifar100'):
+                inputs = inputs.to(device)
+            else:
+                inputs, targets = inputs.to(device), targets.to(device)
             if opt.task == 'regress':
                 prob0.append(torch.zeros((inputs.size(0), opt.num_classes)))  # useless
                 pred = model(inputs).flatten()
@@ -135,7 +140,10 @@ def prima_extract_features(opt, model, device):
                 prob0.append(prob)
                 _, pred = output.max(1)
                 pred0.append(pred)
-                equals.append(pred.eq(targets))
+                if opt.dataset in ('ncifar10', 'ncifar100'):
+                    equals.append(targets[0].eq(targets[1]))
+                else:
+                    equals.append(pred.eq(targets))
         equals = torch.cat(equals).cpu()
         torch.save({'equals': equals}, feat_target_path)
 
@@ -229,7 +237,10 @@ def furret_extract_features(opt, model, device):
     for idx, (inputs, targets) in enumerate(
             tqdm(valloader, desc='Extract', leave=True)):
         if f'sample{idx}' in result.keys(): continue  # type: ignore
-        inputs, targets = inputs.to(device), targets.to(device)
+        if opt.dataset in ('ncifar10', 'ncifar100'):
+            inputs = inputs.to(device)
+        else:
+            inputs, targets = inputs.to(device), targets.to(device)
         features, mutation, pred_ret = [], [], []
         with tqdm(total=opt.num_input_mutants, desc='Mutants', leave=False) as pbar:
             while len(features) < opt.num_input_mutants:
@@ -253,7 +264,13 @@ def furret_extract_features(opt, model, device):
                     _, predicted = outputs.max(1)
                     mutated_mask = (predicted[1:] != predicted[0])
                     mutation.append(mutated_mask.long())
-                    pred_ret.append(predicted[0].eq(targets).long())
+                    # probs = F.softmax(outputs, dim=1)
+                    # mutated_dist = torch.cdist(probs[1:], probs[0].view(1, probs.size(1)))
+                    # mutation.append(mutated_dist.view(-1))
+                    if opt.dataset in ('ncifar10', 'ncifar100'):
+                        pred_ret.append(targets[0].eq(targets[1]).long())
+                    else:
+                        pred_ret.append(predicted[0].eq(targets).long())
 
                 features.append(torch.stack(feature_container, dim=-1)[0])
                 pbar.update(1)

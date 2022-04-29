@@ -73,7 +73,7 @@ def estimator_with_mutation_score(opt, model, dataloader, device):
     correct, total = 0, 0
     features_pool, equals_pool = [], []
     for inputs, targets in tqdm(dataloader, desc='Validate'):
-        inputs, targets = inputs.to(device), targets.to(device)
+        inputs = inputs.to(device)
         feature_container.clear()
         outputs = model(inputs)
         features = torch.stack(feature_container, dim=-1).cpu()
@@ -81,12 +81,16 @@ def estimator_with_mutation_score(opt, model, dataloader, device):
 
         if opt.task == 'regress':
             predicted = outputs.flatten()
-            delta = predicted.view(-1) - targets.view(-1)
+            delta = predicted.view(-1) - targets.to(device).view(-1)
             equals_pool.append(delta.abs().cpu())
             correct += delta.abs().sum().item()
         else:
-            _, predicted = outputs.max(1)
-            equals = predicted.eq(targets).cpu()
+            if opt.dataset in ('ncifar10', 'ncifar100'):
+                targets, cleans = targets
+                equals = targets.eq(cleans)
+            else:
+                _, predicted = outputs.max(1)
+                equals = predicted.eq(targets.to(device)).cpu()
             equals_pool.append(equals)
             correct += equals.sum().item()
         total += targets.size(0)
@@ -252,6 +256,8 @@ def dissector_method(opt, model, dataloader, device):
 
     if opt.dataset == 'cifar100' and opt.model == 'resnet32':
         snap_order = ['relu', 'layer1', 'layer2', 'layer3']
+    elif opt.dataset in ('ncifar10', 'ncifar100') and opt.model == 'resnet34':
+        snap_order = ['layer1', 'layer2', 'layer3', 'layer4']
     elif opt.dataset == 'tinyimagenet' and opt.model == 'resnet18':
         snap_order = ['relu', 'layer1', 'layer2', 'layer3', 'layer4']
     else:
@@ -259,7 +265,7 @@ def dissector_method(opt, model, dataloader, device):
 
     df = pd.DataFrame()
     for inputs, targets in tqdm(dataloader, desc='Validate'):
-        inputs, targets = inputs.to(device), targets.to(device)
+        inputs = inputs.to(device)
         outputs = model(inputs)
         _, predicted = outputs.max(1)
 
@@ -278,8 +284,11 @@ def dissector_method(opt, model, dataloader, device):
         weights = torch.log(torch.arange(1, svscore.size(1) + 1, device=device))
         pvscore = (svscore * weights).sum(dim=1) / weights.sum()
 
-
-        equals = predicted.eq(targets)
+        if opt.dataset in ('ncifar10', 'ncifar100'):
+            targets, cleans = targets
+            equals = targets.eq(cleans)
+        else:
+            equals = predicted.eq(targets.to(device))
         for p, e in zip(pvscore, equals):
             df = df.append({
                 'dissector': p.item(),

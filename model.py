@@ -4,13 +4,20 @@ import torch
 import torchvision
 
 from utils import get_output_location, load_object, rsetattr
+from data.noisycifar.models.resnet import ResNet34
 
 
 def load_model(opt):
-    if 'cifar' in opt.dataset:
+    if opt.dataset in ('cifar10', 'cifar100'):
         model_hub = 'chenyaofo/pytorch-cifar-models'
         model_name = f'{opt.dataset}_{opt.model}'
         model = torch.hub.load(model_hub, model_name, pretrained=True)
+    elif opt.dataset in ('ncifar10', 'ncifar100'):
+        model = ResNet34(num_classes=opt.num_classes)
+        if os.path.exists(get_output_location(opt, 'pretrained_model.pt')):
+            state = load_object(opt, 'pretrained_model.pt')
+            model.load_state_dict(state['net'])  # type: ignore
+            print('Pretrained weights loaded.')
     elif 'tinyimagenet' in opt.dataset:
         # refer from: https://github.com/tjmoon0104/Tiny-ImageNet-Classifier
         model = getattr(torchvision.models, opt.model)(pretrained=True)
@@ -53,8 +60,3 @@ def get_device(opt):
     else:
         raise ValueError('Invalid device type')
 
-
-if __name__ == '__main__':
-    opt = type('',(object,),{'model': 'resnet18', 'dataset': 'tinyimagenet'})()
-    model = load_model(opt)
-    print(model)

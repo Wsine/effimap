@@ -12,16 +12,22 @@ from utils import *
 
 
 @torch.no_grad()
-def eval_performance(model, dataloader, device):
+def eval_performance(opt, model, dataloader, device):
     model.eval()
 
     preds, gt = [], []
     for inputs, targets in tqdm(dataloader, desc='Eval', leave=False):
-        inputs, targets = inputs.to(device), targets.to(device)
+        if opt.dataset in ('ncifar10', 'ncifar100'):
+            inputs = inputs.to(device)
+        else:
+            inputs, targets = inputs.to(device), targets.to(device)
         outputs = model(inputs)
         _, predicted = outputs.max(1)
         preds.append(predicted)
-        gt.append(predicted.eq(targets))
+        if opt.dataset in ('ncifar10', 'ncifar100'):
+            gt.append(targets[0].eq(targets[1]).to(device))
+        else:
+            gt.append(predicted.eq(targets))
 
     preds = torch.cat(preds)
     gt = torch.cat(gt)
@@ -29,7 +35,7 @@ def eval_performance(model, dataloader, device):
 
 
 def search_model_mutants(opt, model, dataloader, device):
-    pred0, gt0 = eval_performance(model, dataloader, device)
+    pred0, gt0 = eval_performance(opt, model, dataloader, device)
     mutation_pool = torch.zeros_like(gt0, dtype=torch.bool)
     step_mutation_score = torch.zeros(1).to(device)
 
@@ -58,7 +64,7 @@ def search_model_mutants(opt, model, dataloader, device):
                 if f'{lname}_{chn_idx}' in searched:
                     layer = None
             handler = layer.register_forward_hook(channel_hook(chn_idx))  # type: ignore
-            pred, _ = eval_performance(model, dataloader, device)
+            pred, _ = eval_performance(opt, model, dataloader, device)
             mutated_mask = pred.ne(pred0)
             mutated_score = torch.logical_and(mutated_mask, ~gt0).sum() \
                           - torch.logical_and(~mutated_mask, gt0).sum()

@@ -1,5 +1,6 @@
 import argparse
 
+
 class ArgsWrapper(argparse.ArgumentParser):
     def add_dispatch(self, dp):
         self.add_argument(
@@ -14,9 +15,9 @@ class ArgsWrapper(argparse.ArgumentParser):
         return opt
 
     def _get_num_classes(self, opt):
-        if opt.dataset in ('cifar10', 'mnist', 'svhn', 'stl10'):
+        if opt.dataset in ('cifar10', 'mnist', 'svhn', 'stl10', 'ncifar10'):
             opt.num_classes = 10
-        elif opt.dataset == 'cifar100':
+        elif opt.dataset in ('cifar100', 'ncifar100'):
             opt.num_classes = 100
         elif opt.dataset == 'tinyimagenet':
             opt.num_classes = 200
@@ -28,8 +29,8 @@ class ArgsWrapper(argparse.ArgumentParser):
 
 
 devices = ['cpu', 'cuda']
-datasets = ['cifar10', 'cifar100', 'mnist', 'svhn', 'stl10', 'tinyimagenet', 'tinyimagenet-trf']
-models = ['resnet32', 'mlp', 'svhn', 'stl10', 'resnet18', 'resnet20']
+datasets = ['cifar10', 'cifar100', 'mnist', 'svhn', 'stl10', 'tinyimagenet', 'tinyimagenet-trf', 'ncifar100', 'ncifar10']
+models = ['resnet32', 'mlp', 'svhn', 'stl10', 'resnet18', 'resnet20', 'resnet34']
 tasks = ['classify', 'regress']
 
 

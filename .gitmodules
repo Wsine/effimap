@@ -1,3 +1,6 @@
 [submodule "playground"]
 	path = playground
 	url = https://github.com/aaron-xichen/pytorch-playground
+[submodule "data/cifar-noisy"]
+	path = data/noisycifar
+	url = https://github.com/UCSC-REAL/cifar-10-100n.git

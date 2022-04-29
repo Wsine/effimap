@@ -1,0 +1,90 @@
+diff --git a/data/cifar.py b/data/cifar.py
+index 5ef416b..06bbf81 100644
+--- a/data/cifar.py
++++ b/data/cifar.py
+@@ -137,10 +137,10 @@ class CIFAR10(data.Dataset):
+         if isinstance(noise_label, dict):
+             if "clean_label" in noise_label.keys():
+                 clean_label = torch.tensor(noise_label['clean_label'])
+-                assert torch.sum(torch.tensor(self.train_labels) - clean_label) == 0  
++                assert torch.sum(torch.tensor(self.train_labels) - clean_label) == 0
+                 print(f'Loaded {self.noise_type} from {self.noise_path}.')
+                 print(f'The overall noise rate is {1-np.mean(clean_label.numpy() == noise_label[self.noise_type])}')
+-            return noise_label[self.noise_type].reshape(-1)  
++            return noise_label[self.noise_type].reshape(-1)
+         else:
+             raise Exception('Input Error')
+ 
+@@ -247,7 +247,7 @@ class CIFAR100(CIFAR10):
+     test_list = [
+         ['test', 'f0ef6b0ae62326f3e7ffdfab6717acfc'],
+     ]
+- 
++
+ 
+     def __init__(self, root, train=True,
+                  transform=None, target_transform=None,
+diff --git a/main.py b/main.py
+index bd432c8..0438bfd 100644
+--- a/main.py
++++ b/main.py
+@@ -23,7 +23,7 @@ parser.add_argument('--is_human', action='store_true', default=False)
+ def adjust_learning_rate(optimizer, epoch,alpha_plan):
+     for param_group in optimizer.param_groups:
+         param_group['lr']=alpha_plan[epoch]
+-        
++
+ 
+ def accuracy(logit, target, topk=(1,)):
+     """Computes the precision@k for the specified values of k"""
+@@ -49,10 +49,10 @@ def train(epoch, train_loader, model, optimizer):
+     for i, (images, labels, indexes) in enumerate(train_loader):
+         ind=indexes.cpu().numpy().transpose()
+         batch_size = len(ind)
+-       
++
+         images = Variable(images).cuda()
+         labels = Variable(labels).cuda()
+-       
++
+         # Forward + Backward + Optimize
+         logits = model(images)
+ 
+@@ -76,7 +76,6 @@ def train(epoch, train_loader, model, optimizer):
+ # Evaluate the Model
+ def evaluate(test_loader, model):
+     model.eval()    # Change model to 'eval' mode.
+-    print('previous_best', best_acc_)
+     correct = 0
+     total = 0
+     for images, labels, _ in test_loader:
+@@ -106,10 +105,10 @@ args.noise_type = noise_type_map[args.noise_type]
+ # load dataset
+ if args.noise_path is None:
+     if args.dataset == 'cifar10':
+-        args.noise_path = './data/CIFAR-10_human.pt'
++        args.noise_path = './data/noisycifar/data/CIFAR-10_human.pt'
+     elif args.dataset == 'cifar100':
+-        args.noise_path = './data/CIFAR-100_human.pt'
+-    else: 
++        args.noise_path = './data/noisycifar/data/CIFAR-100_human.pt'
++    else:
+         raise NameError(f'Undefined dataset {args.dataset}')
+ 
+ 
+@@ -141,6 +140,7 @@ model.cuda()
+ 
+ epoch=0
+ train_acc = 0
++best_acc = 0
+ 
+ # training
+ noise_prior_cur = noise_prior
+@@ -155,3 +155,7 @@ for epoch in range(args.n_epoch):
+     # save results
+     print('train acc on train images is ', train_acc)
+     print('test acc on test images is ', test_acc)
++    if test_acc > best_acc:
++        print('Saving model...')
++        state = {'net': model.state_dict()}
++        torch.save(state, 'pretrained_model.pt')
