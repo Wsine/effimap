@@ -111,6 +111,10 @@ def feature_hook(module, inputs, outputs):
         feature_container.append(mean)
         var = torch.var(inputs[0], dim=dims)
         feature_container.append(var)
-        gini = F.softmax(outputs, dim=1).square().sum(dim=1).mul(-1.).add(1.)
-        feature_container.append(gini)
+        probs = F.softmax(outputs, dim=1)
+        # gini = F.softmax(outputs, dim=1).square().sum(dim=1).mul(-1.).add(1.)
+        # feature_container.append(gini)
+        # entropy = torch.log(F.softmax(outputs, dim=1).max(dim=1).values).mul(-1.)
+        entropy = probs.mul(torch.log(probs)).sum(dim=1).mul(-1.)  # shannon entropy
+        feature_container.append(entropy)
 

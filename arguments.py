@@ -15,9 +15,9 @@ class ArgsWrapper(argparse.ArgumentParser):
         return opt
 
     def _get_num_classes(self, opt):
-        if opt.dataset in ('cifar10', 'mnist', 'svhn', 'stl10', 'ncifar10'):
+        if opt.dataset in ('cifar10', 'mnist', 'svhn', 'stl10'):
             opt.num_classes = 10
-        elif opt.dataset in ('cifar100', 'ncifar100'):
+        elif opt.dataset == 'cifar100':
             opt.num_classes = 100
         elif opt.dataset == 'tinyimagenet':
             opt.num_classes = 200
@@ -29,8 +29,8 @@ class ArgsWrapper(argparse.ArgumentParser):
 
 
 devices = ['cpu', 'cuda']
-datasets = ['cifar10', 'cifar100', 'mnist', 'svhn', 'stl10', 'tinyimagenet', 'tinyimagenet-trf', 'ncifar100', 'ncifar10']
-models = ['resnet32', 'mlp', 'svhn', 'stl10', 'resnet18', 'resnet20', 'resnet34']
+datasets = ['cifar10', 'cifar100', 'mnist', 'svhn', 'stl10', 'tinyimagenet', 'tinyimagenet-trf']
+models = ['resnet32', 'mlp', 'svhn', 'stl10', 'resnet18', 'resnet20']
 tasks = ['classify', 'regress']
 
 
@@ -44,6 +44,7 @@ parser.add_argument('-b', '--batch_size', type=int, default=64)
 parser.add_argument('-m', '--model', type=str, default='resnet32', choices=models)
 parser.add_argument('-d', '--dataset', type=str, default='cifar100', choices=datasets)
 parser.add_argument('-e', '--epochs', type=int, default=100)
+parser.add_argument('--fuzz_energy', type=int, default=10)
 parser.add_argument('--num_model_mutants', type=int, default=100)
 parser.add_argument('--num_input_mutants', type=int, default=200)
 parser.add_argument('--task', type=str, default='classify', choices=tasks)

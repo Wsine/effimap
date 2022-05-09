@@ -1,5 +1,3 @@
-import os
-
 import torch
 import torch.utils.data
 import torchvision
@@ -7,7 +5,6 @@ import torchvision.transforms as T
 from sklearn.model_selection import train_test_split
 
 from datasets.tinyimagenet import TinyImageNetDataset
-from datasets.noisycifar import NCIFAR10, NCIFAR100
 
 
 def load_dataset(opt, split, download=True):
@@ -42,40 +39,26 @@ def load_dataset(opt, split, download=True):
             split='train' if split == 'train' else 'test',
             transform=T.Compose(trsf)
         )
-    elif opt.dataset in ('cifar10', 'ncifar10'):
+    elif opt.dataset == 'cifar10':
         mean = (0.4914, 0.4822, 0.4465)
         std = (0.2023, 0.1994, 0.2010)
         trsf = ([T.RandomCrop(32, padding=4), T.RandomHorizontalFlip()] \
                 if train is True else []) \
              + [T.ToTensor(), T.Normalize(mean, std)]  # type: ignore
-        if opt.dataset == 'ncifar10':
-            dataset = NCIFAR10(
-                root=opt.data_dir, transform=T.Compose(trsf),
-                noise_type='random_label2',  # 'random_label1'/2/3 'worse_label'
-                noise_path=os.path.join(opt.data_dir, 'noisycifar/data/CIFAR-10_human.pt')
-            )
-        else:
-            dataset = torchvision.datasets.CIFAR10(
-                root=opt.data_dir, train=train, download=download,
-                transform=T.Compose(trsf)
-            )
-    elif opt.dataset in ('cifar100', 'ncifar100'):
+        dataset = torchvision.datasets.CIFAR10(
+            root=opt.data_dir, train=train, download=download,
+            transform=T.Compose(trsf)
+        )
+    elif opt.dataset == 'cifar100':
         mean = (0.5071, 0.4867, 0.4408)
         std = (0.2675, 0.2565, 0.2761)
         trsf = ([T.RandomCrop(32, padding=4), T.RandomHorizontalFlip()] \
                 if train is True else []) \
              + [T.ToTensor(), T.Normalize(mean, std)]  # type: ignore
-        if opt.dataset == 'ncifar100':
-            dataset = NCIFAR100(
-                root=opt.data_dir, transform=T.Compose(trsf),
-                noise_type='noisy_label',
-                noise_path=os.path.join(opt.data_dir, 'noisycifar/data/CIFAR-100_human.pt')
-            )
-        else:
-            dataset = torchvision.datasets.CIFAR100(
-                root=opt.data_dir, train=train, download=download,
-                transform=T.Compose(trsf)
-            )
+        dataset = torchvision.datasets.CIFAR100(
+            root=opt.data_dir, train=train, download=download,
+            transform=T.Compose(trsf)
+        )
     elif 'tinyimagenet' in opt.dataset:
         trsf = ([T.RandomHorizontalFlip()] if train is True else []) \
             + [T.ToTensor()]  # type: ignore
@@ -92,30 +75,15 @@ def load_dataset(opt, split, download=True):
     else:
         raise ValueError('Invalid dataset name')
 
-    if opt.dataset in ('stl10', 'svhn'):
-        labels_key = 'labels'
-    elif opt.dataset.startswith('ncifar'):
-        labels_key = 'train_noisy_labels'
-    else:
-        labels_key = 'targets'
+    labels_key = 'labels' if opt.dataset in ('stl10', 'svhn') else 'targets'
     if split == 'train':
-        if opt.dataset.startswith('ncifar'):
-            dataset, _ = train_test_split(
-                dataset, test_size=1./5, random_state=opt.seed, stratify=getattr(dataset, labels_key))
+        pass
     elif split == 'val':
-        if opt.dataset.startswith('ncifar'):
-            _, dataset = train_test_split(
-                dataset, test_size=1./50, random_state=opt.seed, stratify=getattr(dataset, labels_key))
-        else:
-            _, dataset = train_test_split(
-                dataset, test_size=1./10, random_state=opt.seed, stratify=getattr(dataset, labels_key))
+        _, dataset = train_test_split(
+            dataset, test_size=1./10, random_state=opt.seed, stratify=getattr(dataset, labels_key))
     elif split == 'test':
-        if opt.dataset.startswith('ncifar'):
-            _, dataset = train_test_split(
-                dataset, test_size=9./50, random_state=opt.seed, stratify=getattr(dataset, labels_key))
-        else:
-            dataset, _ = train_test_split(
-                dataset, test_size=1./10, random_state=opt.seed, stratify=getattr(dataset, labels_key))
+        dataset, _ = train_test_split(
+            dataset, test_size=1./10, random_state=opt.seed, stratify=getattr(dataset, labels_key))
     else:
         raise ValueError('Invalid split parameter')
 

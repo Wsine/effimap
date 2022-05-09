@@ -1,4 +1,5 @@
 import random
+import time
 
 import torch
 import torch.nn as nn
@@ -12,32 +13,27 @@ from utils import *
 
 
 @torch.no_grad()
-def eval_performance(opt, model, dataloader, device):
+def eval_performance(model, dataloader, device):
     model.eval()
 
     preds, gt = [], []
     for inputs, targets in tqdm(dataloader, desc='Eval', leave=False):
-        if opt.dataset in ('ncifar10', 'ncifar100'):
-            inputs = inputs.to(device)
-        else:
-            inputs, targets = inputs.to(device), targets.to(device)
+        inputs, targets = inputs.to(device), targets.to(device)
         outputs = model(inputs)
         _, predicted = outputs.max(1)
         preds.append(predicted)
-        if opt.dataset in ('ncifar10', 'ncifar100'):
-            gt.append(targets[0].eq(targets[1]).to(device))
-        else:
-            gt.append(predicted.eq(targets))
+        gt.append(predicted.eq(targets))
 
     preds = torch.cat(preds)
     gt = torch.cat(gt)
-    return preds, gt
+    acc = gt.sum().item() / gt.size(0)
+    return preds, gt, acc
 
 
 def search_model_mutants(opt, model, dataloader, device):
-    pred0, gt0 = eval_performance(opt, model, dataloader, device)
-    mutation_pool = torch.zeros_like(gt0, dtype=torch.bool)
-    step_mutation_score = torch.zeros(1).to(device)
+    pred0, gt0, acc0 = eval_performance(model, dataloader, device)
+    mutated_pool = torch.zeros_like(gt0, dtype=torch.bool)
+    minimal_mutant_score, minimal_idx = 10e9, None
 
     result = {}
     searched = [f"{v['layer_name']}_{v['channel_idx']}" for v in result.values()]
@@ -48,8 +44,12 @@ def search_model_mutants(opt, model, dataloader, device):
     ]
     mutant_idx = len(result.keys()) + 1
     with tqdm(total=opt.num_model_mutants, desc='Mutants') as pbar:
-        accu_trial = 0
-        while mutant_idx <= opt.num_model_mutants:
+        start_time = time.time()
+        while True:
+            current_time = time.time()
+            if (current_time - start_time) / 60 > opt.fuzz_energy:
+                break
+
             lname, layer, chn_idx = None, None, None
             while layer is None:
                 lname, layer = fixed_random.choice(valid_layers)
@@ -63,32 +63,57 @@ def search_model_mutants(opt, model, dataloader, device):
                     raise ValueError('Impossible')
                 if f'{lname}_{chn_idx}' in searched:
                     layer = None
+
+            searched.append(f'{lname}_{chn_idx}')
             handler = layer.register_forward_hook(channel_hook(chn_idx))  # type: ignore
-            pred, _ = eval_performance(opt, model, dataloader, device)
+            pred, _, acc = eval_performance(model, dataloader, device)
+            if abs(acc - acc0) > 0.05:
+                handler.remove()
+                continue
+
             mutated_mask = pred.ne(pred0)
-            mutated_score = torch.logical_and(mutated_mask, ~gt0).sum() \
-                          - torch.logical_and(~mutated_mask, gt0).sum()
-            new_coverage_mask = ~gt0 & mutated_mask & ~mutation_pool
-            if new_coverage_mask.sum() > 0 or mutated_score > step_mutation_score \
-                    or opt.dataset in ('mnist', 'svhn'):  # already high accuracy, let it be random
-                mutation_pool.logical_or_(new_coverage_mask)
-                step_mutation_score = step_mutation_score  \
-                    + 0.5 * (mutated_score - step_mutation_score)
+            mutant_score = torch.logical_and(mutated_mask, ~gt0).sum() \
+                         - torch.logical_and(mutated_mask, gt0).sum()
+            new_coverage_mask = ~gt0 & mutated_mask & ~mutated_pool
+
+            if len(result.keys()) < opt.num_model_mutants:
+                mutated_pool.logical_or_(new_coverage_mask)
                 result[f'mutant{mutant_idx}'] = {
                     'layer_name': lname,
-                    'channel_idx': chn_idx
+                    'channel_idx': chn_idx,
+                    'mutant_score': mutant_score.item(),
+                    'new_coverage': new_coverage_mask.sum().item() > 0
                 }
-                searched.append(f'{lname}_{chn_idx}')
                 mutant_idx += 1
                 pbar.update(1)
-                accu_trial = 0
-            else:
-                accu_trial += 1
-                if accu_trial > opt.num_model_mutants:
-                    print(f'Detected no new coverage after {opt.num_model_mutants} trials')
-                    mutation_pool.zero_()
-                    step_mutation_score.zero_()
-                    accu_trial = 0
+                if len(result.keys()) == opt.num_model_mutants:
+                    for k, v in result.items():
+                        if v['mutant_score'] < minimal_mutant_score:
+                            minimal_mutant_score = v['mutant_score']
+                            minimal_idx = k[len('mutant'):]
+                handler.remove()
+                continue
+            elif new_coverage_mask.sum() > 0:
+                for k, v in result.items():
+                    if v['new_coverage'] is False:
+                        result[k] = {
+                            'layer_name': lname,
+                            'channel_idx': chn_idx,
+                            'mutant_score': mutant_score.item(),
+                            'new_coverage': True
+                        }
+                        break
+            elif mutant_score > minimal_mutant_score:
+                result[f'mutant{minimal_idx}'] = {
+                    'layer_name': lname,
+                    'channel_idx': chn_idx,
+                    'mutant_score': mutant_score.item(),
+                    'new_coverage': False
+                }
+                for k, v in result.items():
+                    if v['mutant_score'] < minimal_mutant_score:
+                        minimal_mutant_score = v['mutant_score']
+                        minimal_idx = k[len('mutant'):]
             handler.remove()
 
     return result, 'model_mutants_info.json'
@@ -97,6 +122,7 @@ def search_model_mutants(opt, model, dataloader, device):
 def main():
     opt = parser.parse_args()
     print(opt)
+    guard_folder(opt)
 
     device = get_device(opt)
     model = load_model(opt).to(device)

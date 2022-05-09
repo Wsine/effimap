@@ -124,10 +124,7 @@ def prima_extract_features(opt, model, device):
     if not os.path.exists(model_feat_path):
         prob0, pred0, equals = [], [], []
         for inputs, targets in tqdm(valloader, desc='Original Model'):
-            if opt.dataset in ('ncifar10', 'ncifar100'):
-                inputs = inputs.to(device)
-            else:
-                inputs, targets = inputs.to(device), targets.to(device)
+            inputs, targets = inputs.to(device), targets.to(device)
             if opt.task == 'regress':
                 prob0.append(torch.zeros((inputs.size(0), opt.num_classes)))  # useless
                 pred = model(inputs).flatten()
@@ -140,10 +137,7 @@ def prima_extract_features(opt, model, device):
                 prob0.append(prob)
                 _, pred = output.max(1)
                 pred0.append(pred)
-                if opt.dataset in ('ncifar10', 'ncifar100'):
-                    equals.append(targets[0].eq(targets[1]))
-                else:
-                    equals.append(pred.eq(targets))
+                equals.append(pred.eq(targets))
         equals = torch.cat(equals).cpu()
         torch.save({'equals': equals}, feat_target_path)
 
@@ -232,15 +226,12 @@ def furret_extract_features(opt, model, device):
 
     result = {}
     filepath = get_output_location(opt, 'extract_features.pt')
-    if os.path.exists(filepath):
-        result = load_object(opt, 'extract_features.pt')
+    # if os.path.exists(filepath):
+    #     result = load_object(opt, 'extract_features.pt')
     for idx, (inputs, targets) in enumerate(
             tqdm(valloader, desc='Extract', leave=True)):
-        if f'sample{idx}' in result.keys(): continue  # type: ignore
-        if opt.dataset in ('ncifar10', 'ncifar100'):
-            inputs = inputs.to(device)
-        else:
-            inputs, targets = inputs.to(device), targets.to(device)
+        # if f'sample{idx}' in result.keys(): continue  # type: ignore
+        inputs, targets = inputs.to(device), targets.to(device)
         features, mutation, pred_ret = [], [], []
         with tqdm(total=opt.num_input_mutants, desc='Mutants', leave=False) as pbar:
             while len(features) < opt.num_input_mutants:
@@ -248,6 +239,7 @@ def furret_extract_features(opt, model, device):
                     input_mutants = crop(generator.generate(pad(inputs)))
                 else:
                     input_mutants = generator.generate(inputs)
+                # input_mutants = inputs + torch.normal(0, 0.8, inputs.size()).to(device)
                 input_mutants = input_mutants.repeat(
                     opt.num_model_mutants + 1, 1, 1, 1)
 
@@ -256,8 +248,12 @@ def furret_extract_features(opt, model, device):
 
                 if opt.task == 'regress':
                     predicted = outputs.flatten()
-                    mutated = predicted[1:] - predicted[0]
-                    mutation.append(mutated.abs())
+                    mutated_loss = predicted[1:] - predicted[0]
+                    mutation.append(mutated_loss.abs())
+                    # margin = 0.85 * 1.05  # MAE * 5%
+                    # margin = 1.40 * 1.05  # MAE * 5%
+                    # mutated_mask = (predicted[1:] - predicted[0]).abs() > margin
+                    # mutation.append(mutated_mask.long())
                     gt_ret = predicted[0].view(-1) - targets.view(-1)
                     pred_ret.append(gt_ret.abs())
                 else:
@@ -267,10 +263,7 @@ def furret_extract_features(opt, model, device):
                     # probs = F.softmax(outputs, dim=1)
                     # mutated_dist = torch.cdist(probs[1:], probs[0].view(1, probs.size(1)))
                     # mutation.append(mutated_dist.view(-1))
-                    if opt.dataset in ('ncifar10', 'ncifar100'):
-                        pred_ret.append(targets[0].eq(targets[1]).long())
-                    else:
-                        pred_ret.append(predicted[0].eq(targets).long())
+                    pred_ret.append(predicted[0].eq(targets).long())
 
                 features.append(torch.stack(feature_container, dim=-1)[0])
                 pbar.update(1)
@@ -279,8 +272,8 @@ def furret_extract_features(opt, model, device):
             'mutation': torch.stack(mutation).cpu(),
             'prediction': torch.cat(pred_ret).cpu()
         }
-        with open(filepath, 'wb') as f:
-            torch.save(result, f)
+    with open(filepath, 'wb') as f:
+        torch.save(result, f)
 
 
 def main():

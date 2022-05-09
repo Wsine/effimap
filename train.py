@@ -116,7 +116,6 @@ def train_autoencoder_model(opt):
     scheduler = torch.optim.lr_scheduler.ExponentialLR(
         optimizer, gamma=0.95
     )
-    blur = torchvision.transforms.GaussianBlur((3, 3), sigma=1.0)
 
     best_rec_err = 1e8
     for e in range(opt.epochs):
@@ -128,16 +127,10 @@ def train_autoencoder_model(opt):
             loss=0; rec_err=0
             tepoch = tqdm(valloader, desc=mode)
             for batch_idx, (inputs, targets) in enumerate(tepoch):
-                if opt.dataset in ('ncifar10', 'ncifar100'):
-                    inputs = inputs.to(device)
-                else:
-                    inputs, targets = inputs.to(device), targets.to(device)
+                inputs, targets = inputs.to(device), targets.to(device)
                 with torch.no_grad():
                     _, predicted = model(inputs).max(1)
-                if opt.dataset in ('ncifar10', 'ncifar100'):
-                    equals = targets[0].eq(targets[1]).to(device)
-                else:
-                    equals = predicted.eq(targets)
+                equals = predicted.eq(targets)
                 if pad is not None:
                     inputs = pad(inputs)
                 if mode == 'Train':
@@ -268,10 +261,7 @@ def finetune_model(opt):
             with tqdm(dataloader[phase], desc=phase) as tbar:
                 for batch_idx, (inputs, targets) in enumerate(tbar):
                     inputs = inputs.to(device)
-                    if opt.dataset.startswith('ncifar'):
-                        targets = targets[0].to(device)
-                    else:
-                        targets = targets.to(device)
+                    targets = targets.to(device)
                     optimizer.zero_grad()
                     with torch.set_grad_enabled(phase == 'train'):
                         outputs = model(inputs)
@@ -384,8 +374,6 @@ def train_dissector_model(opt):
     hook_snapshotor = {}
     if opt.dataset == 'cifar100' and opt.model == 'resnet32':
         hook_layers = ['relu', 'layer1', 'layer2', 'layer3']
-    elif opt.dataset in ('ncifar10', 'ncifar100') and opt.model == 'resnet34':
-        hook_layers = ['layer1', 'layer2', 'layer3', 'layer4']
     elif opt.dataset == 'tinyimagenet' and opt.model == 'resnet18':
         hook_layers = ['relu', 'layer1', 'layer2', 'layer3', 'layer4']
     else:
@@ -423,11 +411,7 @@ def train_dissector_model(opt):
 
             total = 0
             for inputs, targets in tqdm(dataloader[phase], desc=phase):
-                inputs = inputs.to(device)
-                if opt.dataset in ('ncifar10', 'ncifar100'):
-                    targets = targets[0 if phase == 'train' else 1].to(device)
-                else:
-                    targets = targets.to(device)
+                inputs, targets = inputs.to(device), targets.to(device)
                 for k in hook_snapshotor.keys():
                     hook_snapshotor[k]['optim'].zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
@@ -521,6 +505,7 @@ def transfer_model_to_sub_class(opt):
 def main():
     opt = parser.add_dispatch(dispatcher).parse_args()
     print(opt)
+    guard_folder(opt)
 
     model, model_name = dispatcher(opt)
     save_object(opt, model, model_name)
