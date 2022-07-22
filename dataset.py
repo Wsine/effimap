@@ -5,6 +5,7 @@ import torchvision.transforms as T
 from sklearn.model_selection import train_test_split
 
 from datasets.tinyimagenet import TinyImageNetDataset
+from datasets.newyorkrealestate import NyresDataset
 
 
 def load_dataset(opt, split, download=True):
@@ -17,6 +18,7 @@ def load_dataset(opt, split, download=True):
             root=opt.data_dir, train=train, download=download,
             transform=T.Compose(trsf)
         )
+        split_reference = dataset.targets
     elif opt.dataset == 'svhn':
         mean = std = (0.5, 0.5, 0.5)
         trsf = [T.ToTensor(), T.Normalize(mean, std)]
@@ -26,6 +28,7 @@ def load_dataset(opt, split, download=True):
             transform=T.Compose(trsf),
             target_transform=lambda t: int(t) - 1
         )
+        split_reference = dataset.labels
     elif opt.dataset == 'stl10':
         mean = std = (0.5, 0.5, 0.5)
         trsf = ([
@@ -39,6 +42,7 @@ def load_dataset(opt, split, download=True):
             split='train' if split == 'train' else 'test',
             transform=T.Compose(trsf)
         )
+        split_reference = dataset.labels
     elif opt.dataset == 'cifar10':
         mean = (0.4914, 0.4822, 0.4465)
         std = (0.2023, 0.1994, 0.2010)
@@ -49,6 +53,7 @@ def load_dataset(opt, split, download=True):
             root=opt.data_dir, train=train, download=download,
             transform=T.Compose(trsf)
         )
+        split_reference = dataset.targets
     elif opt.dataset == 'cifar100':
         mean = (0.5071, 0.4867, 0.4408)
         std = (0.2675, 0.2565, 0.2761)
@@ -59,6 +64,7 @@ def load_dataset(opt, split, download=True):
             root=opt.data_dir, train=train, download=download,
             transform=T.Compose(trsf)
         )
+        split_reference = dataset.targets
     elif 'tinyimagenet' in opt.dataset:
         trsf = ([T.RandomHorizontalFlip()] if train is True else []) \
             + [T.ToTensor()]  # type: ignore
@@ -72,18 +78,21 @@ def load_dataset(opt, split, download=True):
             transform=T.Compose(trsf),
             target_transform=trg_trsf
         )
+        split_reference = dataset.targets
+    elif opt.dataset == 'newyorkrealestate':
+        dataset = NyresDataset(data_dir=opt.data_dir)
+        split_reference = None
     else:
         raise ValueError('Invalid dataset name')
 
-    labels_key = 'labels' if opt.dataset in ('stl10', 'svhn') else 'targets'
     if split == 'train':
         pass
     elif split == 'val':
         _, dataset = train_test_split(
-            dataset, test_size=1./10, random_state=opt.seed, stratify=getattr(dataset, labels_key))
+            dataset, test_size=1./10, random_state=opt.seed, stratify=split_reference)
     elif split == 'test':
         dataset, _ = train_test_split(
-            dataset, test_size=1./10, random_state=opt.seed, stratify=getattr(dataset, labels_key))
+            dataset, test_size=1./10, random_state=opt.seed, stratify=split_reference)
     else:
         raise ValueError('Invalid split parameter')
 
