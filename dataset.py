@@ -12,7 +12,6 @@ def load_dataset(opt, split, **kwargs):
     stratify = dataset.targets if hasattr(dataset, 'targets') else \
                dataset.labels  if hasattr(dataset, 'labels') else \
                None
-    print(stratify)
     if split == 'train':
         pass
     elif split == 'val':
@@ -48,6 +47,8 @@ if __name__ == '__main__':
     from arguments import parser
     opt = parser.parse_args()
     print(opt)
-    dataset = load_dataset(opt, 'val')
-    print(dataset)
-    print(dataset[0])
+    dataloader = load_dataloader(opt, 'val')
+    batch = iter(dataloader).next()
+    inputs, targets = batch
+    print(inputs.size())
+    print(targets.size())

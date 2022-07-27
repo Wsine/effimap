@@ -3,6 +3,7 @@ import os
 import torch
 import torchvision
 
+from models.fc_wrapper import FcWrapper
 from utils import get_output_location, load_object, rsetattr
 
 
@@ -28,6 +29,13 @@ def load_model(opt):
                 restrict = False
             model.load_state_dict(state['net'], strict=restrict)  # type: ignore
             print('Finetune weights loaded.')
+    elif opt.dataset == 'nuswide':
+        pretrained = not os.path.exists(get_output_location(opt, 'multilabels_model.pt'))
+        model = FcWrapper(opt.model, opt.num_classes, pretrained)
+        if not pretrained:
+            state = load_object(opt, 'multilabels_model.pt')
+            model.load_state_dict(state['net'])  # type: ignore
+            print('Multi-labels model weights loaded.')
     else:
         model = torch.hub.load('models', opt.model, source='local', pretrained=True)
 

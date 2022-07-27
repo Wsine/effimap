@@ -82,7 +82,7 @@ class NUSWide(Dataset):
         img_file = os.path.join(self.img_dir, item['url_Small'])
         with open(img_file, 'rb') as f:
             img = Image.open(f).convert('RGB')
-        tags = np.asarray(item.iloc[2:])
+        tags = item.iloc[2:].to_numpy(dtype=np.float32)
 
         if self.transform:
             img = self.transform(img)
@@ -116,9 +116,11 @@ def get_dataset(opt, split, **kwargs):
 
 
 if __name__ == '__main__':
+    import torch
     dataset = NUSWide('data', mode='test')
     print(len(dataset))
-    for img, labels in dataset:
+    for img, tags in dataset:
         print(img)
-        print(labels)
+        print(tags)
+        print(torch.from_numpy(tags))
         break

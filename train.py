@@ -16,6 +16,64 @@ from utils import *
 dispatcher = AttrDispatcher('target')
 
 
+@dispatcher.register('multilabels')
+def train_multilabel_model(opt):
+    device = get_device(opt)
+    model = load_model(opt).to(device)
+
+    criterion = torch.nn.BCEWithLogitsLoss()
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=opt.lr, momentum=0.9, weight_decay=0.0005, nesterov=True
+    )
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+
+    dataloader = {
+        'train': load_dataloader(opt, split='train'),
+        'val': load_dataloader(opt, split='val')
+    }
+
+    best_acc = 0
+    for epoch in range(opt.epochs):
+        print('Epoch {}/{}'.format(epoch+1, opt.epochs))
+        for phase in ('train', 'val'):
+            model.train() if phase == 'train' else model.eval()
+
+            running_loss, running_acc, total = 0, 0, 0
+            with tqdm(dataloader[phase], desc=phase) as tbar:
+                for batch_idx, (inputs, targets) in enumerate(tbar):
+                    inputs, targets = inputs.to(device), targets.to(device)
+                    optimizer.zero_grad()
+                    with torch.set_grad_enabled(phase == 'train'):
+                        outputs = model(inputs)
+                        preds = outputs.detach()
+                        loss = criterion(outputs, targets)
+                        if phase == 'train':
+                            loss.backward()
+                            optimizer.step()
+                    running_loss += loss.item()
+                    running_acc += preds.gt(0.5).eq(targets).sum(1).div(targets.size(1)).sum().item()
+                    total += targets.size(0)
+                    avg_acc = running_acc / total
+                    avg_loss = running_loss / (batch_idx + 1)
+                    tbar.set_postfix(acc=avg_acc, loss=avg_loss)
+
+            avg_acc = running_acc / total
+            if phase == 'val' and avg_acc > best_acc:
+                print('Saving model...')
+                best_acc = avg_acc
+                state = {
+                    'net': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'scheduler': scheduler.state_dict(),
+                    'epoch': epoch,
+                    'acc': avg_acc
+                }
+                save_object(opt, state, 'multilabels_model.pt')
+        scheduler.step()
+
+    return None, ''
+
+
 @dispatcher.register('estimator')
 def train_estimator_model(opt):
     X, Y = [], []
