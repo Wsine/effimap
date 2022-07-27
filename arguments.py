@@ -23,13 +23,11 @@ class ArgsWrapper(argparse.ArgumentParser):
             opt.num_classes = 200
         elif opt.dataset == 'tinyimagenet-trf':
             opt.num_classes = 100
-        else:
-            raise ValueError('Invalid dataset name')
         return opt
 
 
 devices = ['cpu', 'cuda']
-datasets = ['cifar10', 'cifar100', 'mnist', 'svhn', 'stl10', 'tinyimagenet', 'tinyimagenet-trf']
+datasets = ['cifar10', 'cifar100', 'mnist', 'svhn', 'stl10', 'tinyimagenet', 'nuswide']
 models = ['resnet32', 'mlp', 'svhn', 'stl10', 'resnet18', 'resnet20']
 tasks = ['classify', 'regress']
 
@@ -42,7 +40,7 @@ parser.add_argument('--gpu', type=int, default=3, choices=(0, 1, 2, 3))
 parser.add_argument('--seed', type=int, default=2022)
 parser.add_argument('-b', '--batch_size', type=int, default=64)
 parser.add_argument('-m', '--model', type=str, default='resnet32', choices=models)
-parser.add_argument('-d', '--dataset', type=str, default='cifar100', choices=datasets)
+parser.add_argument('-d', '--dataset', type=str, default='nuswide', choices=datasets)
 parser.add_argument('-e', '--epochs', type=int, default=100)
 parser.add_argument('--fuzz_energy', type=int, default=10)
 parser.add_argument('--num_model_mutants', type=int, default=100)

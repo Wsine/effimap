@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 from torch.utils.data import Dataset
+import torchvision.transforms as T
 
 
 class NUSWide(Dataset):
@@ -81,14 +82,37 @@ class NUSWide(Dataset):
         img_file = os.path.join(self.img_dir, item['url_Small'])
         with open(img_file, 'rb') as f:
             img = Image.open(f).convert('RGB')
-        labels = np.asarray(item.iloc[2:])
+        tags = np.asarray(item.iloc[2:])
 
         if self.transform:
             img = self.transform(img)
         if self.target_transform:
-            labels = self.target_transform(labels)
+            tags = self.target_transform(tags)
 
-        return img, labels
+        return img, tags
+
+
+def get_dataset(opt, split, **kwargs):
+    train = True if split == 'train' else False
+    mean = (0.485, 0.456, 0.406)
+    std = (0.229, 0.224, 0.225)
+    trsf = [
+        T.Resize(256),
+        T.RandomResizedCrop(224),
+        T.RandomHorizontalFlip(),
+        T.ToTensor(),
+        T.Normalize(mean, std)
+    ] if train is True else [
+        T.Resize(256),
+        T.CenterCrop(224),
+        T.ToTensor(),
+        T.Normalize(mean, std)
+    ]
+    dataset = NUSWide(
+        opt.data_dir, mode='train' if train is True else 'test',
+        transform=T.Compose(trsf), **kwargs
+    )
+    return dataset
 
 
 if __name__ == '__main__':

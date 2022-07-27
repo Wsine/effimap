@@ -5,6 +5,7 @@ import os
 
 from collections import defaultdict
 from torch.utils.data import Dataset
+import torchvision.transforms as T
 from torchvision.datasets.utils import check_integrity, download_and_extract_archive
 
 from tqdm import tqdm
@@ -201,6 +202,24 @@ class TinyImageNetDataset(Dataset):
         if self.target_transform:
             lbl = self.target_transform(lbl)
         return img, lbl
+
+
+def get_dataset(opt, split, **kwargs):
+    train = True if split == 'train' else False
+    trsf = ([T.RandomHorizontalFlip()] if train is True else []) \
+        + [T.ToTensor()]  # type: ignore
+        #  + [T.Resize(224, T.InterpolationMode.BICUBIC), T.ToTensor()]  # type: ignore
+    # trg_trsf = (lambda y: y - 100) if 'trf' in opt.dataset else None
+    trg_trsf = None
+    dataset = TinyImageNetDataset(
+        root_dir=opt.data_dir,
+        # there are no labels in test split
+        mode='train' if train is True else 'val',
+        transform=T.Compose(trsf),
+        target_transform=trg_trsf,
+        **kwargs
+    )
+    return dataset
 
 
 if __name__ == '__main__':
