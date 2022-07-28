@@ -1,3 +1,6 @@
 [submodule "playground"]
 	path = vendor/playground
 	url = https://github.com/aaron-xichen/pytorch-playground
+[submodule "vendor/MSRN"]
+	path = vendor/MSRN
+	url = https://github.com/chehao2628/MSRN.git
