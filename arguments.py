@@ -33,16 +33,16 @@ class ArgsWrapper(argparse.ArgumentParser):
 devices = ['cpu', 'cuda']
 datasets = ['cifar10', 'cifar100', 'mnist', 'svhn', 'stl10', 'tinyimagenet', 'nuswide']
 models = ['resnet32', 'mlp', 'svhn', 'stl10', 'resnet18', 'resnet20', 'msgdn']
-tasks = ['classify', 'regress']
+tasks = ['classify', 'regress', 'multilabels']
 
 
 parser = ArgsWrapper()
 parser.add_argument('--data_dir', default='data')
 parser.add_argument('--output_dir', default='output')
 parser.add_argument('--device', default='cuda', choices=devices)
-parser.add_argument('--gpu', type=int, default=3, choices=(0, 1, 2, 3))
+parser.add_argument('--gpu', type=int, default=0, choices=(0, 1, 2, 3))
 parser.add_argument('--seed', type=int, default=2022)
-parser.add_argument('-b', '--batch_size', type=int, default=128)
+parser.add_argument('-b', '--batch_size', type=int, default=4)
 parser.add_argument('-m', '--model', type=str, default='msgdn', choices=models)
 parser.add_argument('-d', '--dataset', type=str, default='nuswide', choices=datasets)
 parser.add_argument('-e', '--epochs', type=int, default=100)
@@ -50,6 +50,6 @@ parser.add_argument('--lr', type=float, default=0.1)
 parser.add_argument('--fuzz_energy', type=int, default=10)
 parser.add_argument('--num_model_mutants', type=int, default=100)
 parser.add_argument('--num_input_mutants', type=int, default=200)
-parser.add_argument('--task', type=str, default='classify', choices=tasks)
+parser.add_argument('--task', type=str, default='multilabels', choices=tasks)
 parser.add_argument('--prima_split', type=str, default='val', choices=('val', 'test'))
 

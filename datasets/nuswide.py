@@ -1,4 +1,5 @@
 import os
+import pickle
 from ast import literal_eval
 
 import numpy as np
@@ -37,13 +38,14 @@ class NUSWide(Dataset):
         self.target_transform = target_transform
         self.base_dir = os.path.join(root_dir, 'nus-wide')
 
-        csv_file = os.path.join(self.base_dir, 'nus_wid_data.csv')
-        self.data = self.parse_from_csv(csv_file)
+        pkl_file = os.path.join(self.base_dir, 'nuswide_glove_word2vec.pkl')
+        with open(pkl_file, 'rb') as f:
+            inp = pickle.load(f)
+        self.inp = np.asarray(inp).astype(np.float32)
 
-    def parse_from_csv(self, csv_file):
+        csv_file = os.path.join(self.base_dir, 'nus_wid_data.csv')
         df = pd.read_csv(csv_file, converters={"label": literal_eval})
-        df = df[df['split_name'] == self.mode]  # type: ignore
-        return df
+        self.data = df[df['split_name'] == self.mode]  # type: ignore
 
     def __len__(self):
         return len(self.data)  # type: ignore
@@ -55,7 +57,7 @@ class NUSWide(Dataset):
         with open(img_file, 'rb') as f:
             img = Image.open(f).convert('RGB')
         indexes = list(map(lambda x: label2index[x], item['label']))
-        targets = np.zeros((self.get_num_classes(),), dtype=np.int32)
+        targets = np.ones((self.get_num_classes(),), dtype=np.int32) * -1
         targets[indexes] = 1
 
         if self.transform:
@@ -63,7 +65,7 @@ class NUSWide(Dataset):
         if self.target_transform:
             targets = self.target_transform(targets)
 
-        return img, targets
+        return (img, self.inp), targets
 
     def get_num_classes(self):
         return len(label2index)

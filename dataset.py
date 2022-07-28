@@ -12,7 +12,7 @@ def load_dataset(opt, split, **kwargs):
     stratify = dataset.targets if hasattr(dataset, 'targets') else \
                dataset.labels  if hasattr(dataset, 'labels') else \
                None
-    if split == 'train':
+    if split == 'train' or split == 'val+test':
         pass
     elif split == 'val':
         _, val_indices = train_test_split(
@@ -49,6 +49,7 @@ if __name__ == '__main__':
     print(opt)
     dataloader = load_dataloader(opt, 'train')
     batch = iter(dataloader).next()
-    inputs, targets = batch
-    print(inputs.size())
+    (imgs, inps), targets = batch
+    print(imgs.size())
+    print(inps.size())
     print(targets.size())

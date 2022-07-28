@@ -66,5 +66,9 @@ if __name__ == '__main__':
     from arguments import parser
     opt = parser.parse_args()
     print(opt)
-    model = load_model(opt)
+    model = load_model(opt).cuda()
     print(model)
+    fake_img = torch.rand((2, 3, 448, 448)).cuda()
+    fake_inp = torch.rand((2, 81, 300)).cuda()
+    fake_out = model(fake_img, fake_inp)
+    print(fake_out)
