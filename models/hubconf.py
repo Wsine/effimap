@@ -1,7 +1,7 @@
 dependencies = ['torch']
-from playground.mnist.model import mnist as mnist_loader
-from playground.svhn.model import svhn as svhn_loader
-from playground.stl10.model import stl10 as stl10_loader
+from vendor.playground.mnist.model import mnist as mnist_loader
+from vendor.playground.svhn.model import svhn as svhn_loader
+from vendor.playground.stl10.model import stl10 as stl10_loader
 
 
 def mlp(pretrained=False, **kwargs):
