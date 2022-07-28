@@ -1,10 +1,31 @@
 import os
+from ast import literal_eval
 
 import numpy as np
 import pandas as pd
 from PIL import Image
 from torch.utils.data import Dataset
 import torchvision.transforms as T
+
+
+label2index = {
+    'clouds': 0, 'sky': 1, 'person': 2, 'street': 3, 'window': 4, 'tattoo': 5,
+    'wedding': 6, 'animal': 7, 'cat': 8, 'buildings': 9, 'tree': 10,
+    'airport': 11, 'plane': 12, 'water': 13, 'grass': 14, 'cars': 15,
+    'road': 16, 'snow': 17, 'sunset': 18, 'railroad': 19, 'train': 20,
+    'flowers': 21, 'plants': 22, 'house': 23, 'military': 24, 'horses': 25,
+    'nighttime': 26, 'lake': 27, 'rocks': 28, 'waterfall': 29, 'sun': 30,
+    'vehicle': 31, 'sports': 32, 'reflection': 33, 'temple': 34, 'statue': 35,
+    'ocean': 36, 'town': 37, 'beach': 38, 'tower': 39, 'toy': 40,
+    'book': 41, 'bridge': 42, 'fire': 43, 'mountain': 44, 'rainbow': 45,
+    'garden': 46, 'police': 47, 'coral': 48, 'fox': 49, 'sign': 50,
+    'dog': 51, 'cityscape': 52, 'sand': 53, 'dancing': 54, 'leaf': 55,
+    'tiger': 56, 'moon': 57, 'birds': 58, 'food': 59, 'cow': 60,
+    'valley': 61, 'fish': 62, 'harbor': 63, 'bear': 64, 'castle': 65,
+    'boats': 66, 'running': 67, 'glacier': 68, 'swimmers': 69, 'elk': 70,
+    'frost': 71, 'protest': 72, 'soccer': 73, 'flags': 74, 'zebra': 75,
+    'surf': 76, 'whales': 77, 'computer': 78, 'earthquake': 79, 'map': 80
+}
 
 
 class NUSWide(Dataset):
@@ -15,62 +36,13 @@ class NUSWide(Dataset):
         self.transform = transform
         self.target_transform = target_transform
         self.base_dir = os.path.join(root_dir, 'nus-wide')
-        self.img_dir = os.path.join(self.base_dir, 'images')
 
-        csv_file = os.path.join(self.base_dir, f'{mode}_data.csv')
-        if os.path.exists(csv_file):
-            self.data = pd.read_csv(csv_file)
-        else:
-            self.data = self.parse2csv(mode, csv_file)
+        csv_file = os.path.join(self.base_dir, 'nus_wid_data.csv')
+        self.data = self.parse_from_csv(csv_file)
 
-    def parse2csv(self, mode, csv_file):
-        ERROR_STRING = 'http://farm2.static.flickr.com/1331/566491861_3d5b3'
-        urls_file = os.path.join(self.base_dir, 'NUS-WIDE-urls.txt')
-        df = pd.read_table(
-            urls_file, delim_whitespace=True,
-            header=None, skiprows=1,
-            names=[
-                'Photo_file', 'Photo_id', 'url_Large',
-                'url_Middle', 'url_Small', 'url_Original'
-            ],
-            usecols=['Photo_file', 'url_Small'],
-            engine='python',
-            # bad line happens on line 67
-            on_bad_lines=lambda x: [y.replace(ERROR_STRING, '') for y in x[:2]]
-        )
-        assert(isinstance(df, pd.DataFrame))
-        df['Photo_file'] = df['Photo_file'].map(lambda x: x[20:])
-        df['url_Small'] = df['url_Small'].map(
-            lambda x: os.path.basename(x) if isinstance(x, str) else x)
-
-        labels_dir = os.path.join(self.base_dir, 'AllLabels')
-        for _, _, filenames in os.walk(labels_dir):
-            for filename in sorted(filenames):
-                label_name = filename[7:][:-4]  # extract Labels_{label_name}.txt
-                label_file = os.path.join(labels_dir, filename)
-                with open(label_file) as f:
-                    labels = list(map(lambda x: int(x.strip()), f.readlines()))
-                    df[label_name] = labels
-
-        img_list_dir = os.path.join(self.base_dir, 'ImageList')
-        list_file_name = 'TrainImagelist.txt' if mode == 'train' else 'TestImagelist.txt'
-        list_file = os.path.join(img_list_dir, list_file_name)
-        with open(list_file) as f:
-            photo_files = list(map(lambda x: x.strip(), f.readlines()))
-        # photo_files = photo_files[:10]  # for debugging only
-        df = df[df['Photo_file'].isin(photo_files)]
-
-        df = df.drop(df[df['url_Small'].isna()].index)
-        m2indexed = {}
-        for _, _, filenames in os.walk(self.img_dir):
-            for filename in filenames:
-                m_file = '_'.join(filename.split('_')[1:])
-                m2indexed[m_file] = filename
-        df['url_Small'] = df['url_Small'].apply(lambda x: m2indexed.get(x))
-        df = df.drop(df[df['url_Small'].isna()].index)
-
-        df.to_csv(csv_file, index=False)
-
+    def parse_from_csv(self, csv_file):
+        df = pd.read_csv(csv_file, converters={"label": literal_eval})
+        df = df[df['split_name'] == self.mode]  # type: ignore
         return df
 
     def __len__(self):
@@ -79,17 +51,22 @@ class NUSWide(Dataset):
     def __getitem__(self, idx):
         item = self.data.iloc[idx]  # type: ignore
 
-        img_file = os.path.join(self.img_dir, item['url_Small'])
+        img_file = os.path.join(self.base_dir, item['filepath'])
         with open(img_file, 'rb') as f:
             img = Image.open(f).convert('RGB')
-        tags = item.iloc[2:].to_numpy(dtype=np.float32)
+        indexes = list(map(lambda x: label2index[x], item['label']))
+        targets = np.zeros((self.get_num_classes(),), dtype=np.int32)
+        targets[indexes] = 1
 
         if self.transform:
             img = self.transform(img)
         if self.target_transform:
-            tags = self.target_transform(tags)
+            targets = self.target_transform(targets)
 
-        return img, tags
+        return img, targets
+
+    def get_num_classes(self):
+        return len(label2index)
 
 
 def get_dataset(opt, split, **kwargs):
@@ -97,19 +74,17 @@ def get_dataset(opt, split, **kwargs):
     mean = (0.485, 0.456, 0.406)
     std = (0.229, 0.224, 0.225)
     trsf = [
-        T.Resize(256),
-        T.RandomResizedCrop(224),
+        T.RandomResizedCrop(448, scale=(0.6, 1.0)),
         T.RandomHorizontalFlip(),
         T.ToTensor(),
         T.Normalize(mean, std)
     ] if train is True else [
-        T.Resize(256),
-        T.CenterCrop(224),
+        T.Resize((448, 448)),
         T.ToTensor(),
         T.Normalize(mean, std)
     ]
     dataset = NUSWide(
-        opt.data_dir, mode='train' if train is True else 'test',
+        opt.data_dir, mode='train' if train is True else 'val',
         transform=T.Compose(trsf), **kwargs
     )
     return dataset
@@ -117,7 +92,7 @@ def get_dataset(opt, split, **kwargs):
 
 if __name__ == '__main__':
     import torch
-    dataset = NUSWide('data', mode='test')
+    dataset = NUSWide('data', mode='train')
     print(len(dataset))
     for img, tags in dataset:
         print(img)

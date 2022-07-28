@@ -47,7 +47,7 @@ if __name__ == '__main__':
     from arguments import parser
     opt = parser.parse_args()
     print(opt)
-    dataloader = load_dataloader(opt, 'val')
+    dataloader = load_dataloader(opt, 'train')
     batch = iter(dataloader).next()
     inputs, targets = batch
     print(inputs.size())
