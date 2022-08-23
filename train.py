@@ -1,9 +1,12 @@
 import torch
+import torch.nn.functional as F
 import numpy as np
 import torchvision
 import xgboost as xgb
 from sklearn.multioutput import MultiOutputClassifier, MultiOutputRegressor
 from sklearn.metrics import accuracy_score, mean_absolute_error
+from sklearn.neighbors import KernelDensity
+# from scipy.stats import gaussian_kde
 from tqdm import tqdm
 
 from arguments import parser
@@ -498,6 +501,59 @@ def train_dissector_model(opt):
         for k in hook_snapshotor.keys()
     }
     return state, 'snapshotors.pt'
+
+
+activation_trace = []
+def activation_hook(module, finputs, foutputs):
+    if len(foutputs.size()) == 4:
+        # For convolutional layers
+        # https://github.com/coinse/sadl/blob/master/sa.py#L94
+        at = F.relu(foutputs).mean(dim=1).flatten(start_dim=1)
+    else:
+        at = F.relu(foutputs).flatten(start_dim=1)
+    at = at.cpu().detach().numpy()
+    activation_trace.append(at)  # type: ignore
+
+@dispatcher.register('LSA')
+@torch.no_grad()
+def train_kernel_density_estimator(opt):
+    device = get_device(opt)
+    model = load_model(opt).to(device)
+    trainloader = load_dataloader(opt, split='train', shuffle=False)
+    model.eval()
+
+    if opt.dataset == 'cifar100' and opt.model == 'resnet32':
+        model.layer1[4].bn1.register_forward_hook(activation_hook)
+    elif opt.dataset == 'tinyimagenet' and opt.model == 'resnet18':
+        model.layer3[0].bn1.register_forward_hook(activation_hook)
+    elif opt.dataset == 'mnist' and opt.model == 'mlp':
+        model.model.fc2.register_forward_hook(activation_hook)
+    elif opt.dataset == 'svhn' and opt.model == 'svhn':
+        model.features[5].register_forward_hook(activation_hook)
+
+    trainloader = load_dataloader(opt, split='train', shuffle=False)
+    for inputs, _ in tqdm(trainloader, desc='Trace'):
+        model(inputs.to(device))
+    train_at = np.concatenate(activation_trace)
+    print(train_at.shape)
+    keep_columns = (np.var(train_at, axis=0) > 1e-5).nonzero()[0]
+    # columns_var = np.var(train_at, axis=0)
+    # keep_columns = (columns_var > np.mean(columns_var)).nonzero()[0]
+    train_at = train_at[:, keep_columns]
+    print(train_at.shape)
+
+    # from: https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/neighbors/_kde.py#L217
+    # scott method
+    bd = train_at.shape[0] ** (-1 / (train_at.shape[1] + 4))
+    kde = KernelDensity(kernel='gaussian', bandwidth=bd)
+    kde.fit(train_at)
+    # kde = gaussian_kde(train_at)
+
+    result = {
+        'kde': kde,
+        'keep_columns': keep_columns
+    }
+    return result, 'kernel_density_estimator.pkl'
 
 
 @dispatcher.register('transfer')

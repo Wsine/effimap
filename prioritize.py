@@ -9,6 +9,7 @@ from dataset import load_dataloader
 from model import get_device, load_model
 from models.vanilla_vae import VanillaVAE
 from mutate import feature_hook, feature_container
+from train import activation_hook, activation_trace
 from arguments import parser
 from utils import *
 
@@ -62,6 +63,70 @@ def gini_method(_, model, dataloader, device):
         print('rauc for gini {} samples: {:.2f}%'.format(r, 100. * rauc))
     rauc = rauc_measurement(df['actual'])
     print('rauc for gini all: {:.2f}%'.format(100. * rauc))
+
+
+@dispatcher.register('LSA')
+@torch.no_grad()
+def likelihood_based_surprise_adequacy(opt, model, dataloader, device):
+    model.eval()
+    if opt.dataset == 'cifar100' and opt.model == 'resnet32':
+        model.layer1[4].bn1.register_forward_hook(activation_hook)
+    elif opt.dataset == 'tinyimagenet' and opt.model == 'resnet18':
+        model.layer3[0].bn1.register_forward_hook(activation_hook)
+    elif opt.dataset == 'mnist' and opt.model == 'mlp':
+        model.model.fc2.register_forward_hook(activation_hook)
+    elif opt.dataset == 'svhn' and opt.model == 'svhn':
+        model.features[5].register_forward_hook(activation_hook)
+
+    lsa_model = load_object(opt, 'kernel_density_estimator.pkl')
+    kde = lsa_model['kde']  # type: ignore
+    keep_columns = lsa_model['keep_columns']  # type: ignore
+
+    equals_pool, score_pool = [], []
+    for inputs, targets in tqdm(dataloader, desc='Test'):
+        outputs = model(inputs.to(device))
+        if opt.task == 'regress':
+            predicted = outputs.flatten()
+            delta = predicted.view(-1) - targets.to(device).view(-1)
+            equals_pool.append(delta.abs().cpu())
+        else:
+            _, predicted = outputs.max(1)
+            equals = predicted.eq(targets.to(device)).cpu()
+            equals_pool.append(equals)
+        test_at = activation_trace[-1][:, keep_columns]
+        scores = kde.score_samples(test_at)
+        score_pool.append(scores)
+    equals_pool = torch.cat(equals_pool)
+    score_pool = np.concatenate(score_pool)
+    print(score_pool.shape)
+
+    # test_at = np.concatenate(activation_trace)[:, keep_columns]
+    # print(test_at.shape)
+    # # scores = kde.score_samples(test_at)
+    # scores = -kde.logpdf(test_at)
+    # print(scores.shape)
+    # print(scores)
+
+    df = pd.DataFrame()
+    for s, e in zip(score_pool, equals_pool):
+        df = df.append({
+            'lsa': -1.0 * s,
+            'actual': e.item()
+        }, ignore_index=True)
+    df = df.astype({'lsa': float, 'actual': int})
+    # df = df.astype({'lsa': float, 'actual': float})
+    df.sort_values(by=['lsa'], ascending=True, inplace=True)
+    for r in [100, 200, 300, 500]:
+        rauc = rauc_measurement(df.head(r)['actual'])
+        print('rauc for LSA {} samples: {:.2f}%'.format(r, 100. * rauc))
+    for r in [0.1, 0.2, 0.3, 0.5]:
+        sub_seq = int(df.size * r)
+        rauc = rauc_measurement(df.head(sub_seq)['actual'])
+        print('rauc for LSA {:.2f}%: {:.2f}%'.format(r * 100, 100. * rauc))
+    rauc = rauc_measurement(df['actual'])
+    print('rauc for LSA all: {:.2f}%'.format(100. * rauc))
+
+
 
 
 @dispatcher.register('furret')

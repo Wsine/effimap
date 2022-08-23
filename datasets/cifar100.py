@@ -9,7 +9,7 @@ def get_dataset(opt, split, **kwargs):
     trsf = ([T.RandomCrop(32, padding=4), T.RandomHorizontalFlip()] \
             if train is True else []) \
          + [T.ToTensor(), T.Normalize(mean, std)]  # type: ignore
-    dataset = torchvision.datasets.CIFAR10(
+    dataset = torchvision.datasets.CIFAR100(
         root=opt.data_dir, train=train,
         transform=T.Compose(trsf),
         **kwargs

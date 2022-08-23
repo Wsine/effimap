@@ -23,7 +23,7 @@ def load_dataset(opt, split, **kwargs):
     elif split == 'test':
         test_indices, _ = train_test_split(
             list(range(len(dataset))),
-            test_size=1./10, random_state=opt.seed, stratify=dataset.targets
+            test_size=1./10, random_state=opt.seed, stratify=stratify
         )
         dataset = torch.utils.data.Subset(dataset, test_indices)  # type: ignore
     else:
