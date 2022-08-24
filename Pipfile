@@ -4,20 +4,14 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-torch = "==1.8.1"
-torchvision = "==0.9.1"
+torch = "*"
+torchvision = "*"
 tqdm = "*"
-scipy = "*"
 sklearn = "*"
-pandas = "*"
-torchsummary = "*"
-xgboost = "*"
-opencv-python = "*"
-ipython = "*"
+pytorch-lightning = "*"
+torchmetrics = "*"
 
 [dev-packages]
 
 [requires]
 python_version = "3.8"
-
-[scripts]

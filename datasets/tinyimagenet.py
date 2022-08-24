@@ -208,7 +208,7 @@ def get_dataset(opt, split, **kwargs):
     train = True if split == 'train' else False
     trsf = ([T.RandomHorizontalFlip()] if train is True else []) \
         + [T.ToTensor()]  # type: ignore
-        #  + [T.Resize(224, T.InterpolationMode.BICUBIC), T.ToTensor()]  # type: ignore
+          # + [T.Resize(224, T.InterpolationMode.BICUBIC), T.ToTensor()]  # type: ignore
     # trg_trsf = (lambda y: y - 100) if 'trf' in opt.dataset else None
     trg_trsf = None
     dataset = TinyImageNetDataset(

@@ -5,11 +5,22 @@ import functools
 import hashlib
 
 import torch
-import pandas as pd
+# import pandas as pd
 
 
-def get_output_location(opt, filename=None):
-    output_folder = os.path.join(opt.output_dir, opt.dataset, opt.model)
+def get_device(ctx):
+    if ctx.device == 'cpu':
+        return torch.device('cpu')
+    elif ctx.device == 'cuda':
+        if torch.cuda.is_available() is False:
+            return torch.device('cpu')
+        return torch.device(f'cuda:{ctx.gpu}')
+    else:
+        raise ValueError('Invalid device type')
+
+
+def get_output_path(ctx, filename=None):
+    output_folder = os.path.join(ctx.output_dir, ctx.dataset, ctx.model)
     if isinstance(filename, str):
         return os.path.join(output_folder, filename)
     if isinstance(filename, list):
@@ -17,8 +28,8 @@ def get_output_location(opt, filename=None):
     return output_folder
 
 
-def guard_folder(opt, folder=None):
-    output_folder = get_output_location(opt)
+def guard_folder(ctx, folder=None):
+    output_folder = get_output_path(ctx)
     folder_to_create = [output_folder]
     if isinstance(folder, str):
         folder_to_create += [os.path.join(output_folder, folder)]
@@ -72,12 +83,11 @@ def preview_object(obj):
     print(json.dumps(_reduce_object(obj), indent=2, ensure_ascii=False))
 
 
-def save_object(opt, obj, filename, **kwargs):
+def save_object(ctx, obj, filename, **kwargs):
     if obj is None:
-        print('object to export is None.')
         return
-    mode = 'b' if filename.endswith(('.pkl', '.pt')) else ''
-    dstdir = os.path.join(opt.output_dir, opt.dataset, opt.model)
+    mode = 'b' if filename.endswith(('.pkl', '.pt', '.pth')) else ''
+    dstdir = os.path.join(ctx.output_dir, ctx.dataset, ctx.model)
 
     filepath = os.path.join(dstdir, filename)
     with open(filepath, f'w{mode}') as f:
@@ -93,25 +103,27 @@ def save_object(opt, obj, filename, **kwargs):
             obj.to_csv(f, float_format='%.8f')
         elif filename.endswith('.pt'):
             torch.save(obj, f)
-
-
-def load_object(opt, filename, **kwargs):
-    mode = 'b' if filename.endswith(('.pkl', '.pt')) else ''
-    dstdir = os.path.join(opt.output_dir, opt.dataset, opt.model)
-
-    filepath = os.path.join(dstdir, filename)
-    with open(filepath, f'r{mode}') as f:
-        if filename.endswith('.pkl'):
-            obj = pickle.load(f, **kwargs)
-        elif filename.endswith('.json'):
-            obj = json.load(f)
-        elif filename.endswith('.csv'):
-            obj = pd.read_csv(f)
-        elif filename.endswith('.pt'):
-            obj = torch.load(f, map_location='cpu')
         else:
-            raise ValueError('Invalid input')
+            raise NotImplemented
+
+
+def load_pickle_object(ctx, filename, **kwargs):
+    filepath = os.path.join(ctx.output_dir, ctx.dataset, ctx.model, filename)
+    with open(filepath, 'rb') as f:
+        obj = pickle.load(f, **kwargs)
     return obj
+
+
+def load_json_object(ctx, filename):
+    filepath = os.path.join(ctx.output_dir, ctx.dataset, ctx.model, filename)
+    with open(filepath, 'r') as f:
+        obj = json.load(f)
+    return obj
+
+
+def load_torch_object(ctx, filename):
+    filepath = os.path.join(ctx.output_dir, ctx.dataset, ctx.model, filename)
+    return torch.load(filepath, map_location='cpu')
 
 
 # borrow from: https://stackoverflow.com/questions/31174295/
@@ -135,9 +147,9 @@ class AttrDispatcher(object):
         self.registry = {}
 
     def __call__(self, *args, **kwargs):
-        opt, *_ = args
-        assert hasattr(opt, self.attr), f"The first argument must has attribute '{self.attr}'"
-        func = self.registry[getattr(opt, self.attr)]
+        ctx, *_ = args
+        assert hasattr(ctx, self.attr), f"The first argument must has attribute '{self.attr}'"
+        func = self.registry[getattr(ctx, self.attr)]
         return func(*args, **kwargs)
 
     def register(self, key):
