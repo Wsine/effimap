@@ -39,10 +39,11 @@ def measure_rauc(ranked_lists):
 
 
 def main():
-    parser.add_argument('method', type=str)
+    parser.add_argument('method', type=str, choices=('random', 'pmt'))
     ctx = parser.parse_args()
     print(ctx)
     ranked_lists = load_pickle_object(ctx, f'{ctx.method}_list.pkl')
+    assert(ranked_lists is not None)
     num_ranked_lists = sum([1 for key in ranked_lists if key.startswith('rank')])
     if num_ranked_lists == 1:
         measure_rauc(ranked_lists)

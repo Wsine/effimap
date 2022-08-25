@@ -3,7 +3,7 @@ import argparse
 
 devices = ('cpu', 'cuda')
 datasets = ('cifar100', 'tinyimagenet')
-models = ('resnet32', 'resnet18')
+models = ('resnet32', 'resnet56', 'vgg13', 'resnet18')
 tasks = ('clf', 'reg')
 
 

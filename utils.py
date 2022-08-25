@@ -108,21 +108,27 @@ def save_object(ctx, obj, filename, **kwargs):
 
 
 def load_pickle_object(ctx, filename, **kwargs):
-    filepath = os.path.join(ctx.output_dir, ctx.dataset, ctx.model, filename)
+    filepath = os.path.join(get_output_path(ctx), filename)
+    if not os.path.exists(filepath):
+        return None
     with open(filepath, 'rb') as f:
         obj = pickle.load(f, **kwargs)
     return obj
 
 
 def load_json_object(ctx, filename):
-    filepath = os.path.join(ctx.output_dir, ctx.dataset, ctx.model, filename)
+    filepath = os.path.join(get_output_path(ctx), filename)
+    if not os.path.exists(filepath):
+        return None
     with open(filepath, 'r') as f:
         obj = json.load(f)
     return obj
 
 
 def load_torch_object(ctx, filename):
-    filepath = os.path.join(ctx.output_dir, ctx.dataset, ctx.model, filename)
+    filepath = os.path.join(get_output_path(ctx), filename)
+    if not os.path.exists(filepath):
+        return None
     return torch.load(filepath, map_location='cpu')
 
 
