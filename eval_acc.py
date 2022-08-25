@@ -32,6 +32,7 @@ def evaluate_standard_accuracy(ctx):
 
 def main():
     ctx = parser.parse_args()
+    print(ctx)
     evaluate_standard_accuracy(ctx)
 
 

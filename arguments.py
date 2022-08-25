@@ -4,7 +4,7 @@ import argparse
 devices = ('cpu', 'cuda')
 datasets = ('cifar100', 'tinyimagenet')
 models = ('resnet32', 'resnet18')
-tasks = ('classification', 'regression')
+tasks = ('clf', 'reg')
 
 
 parser = argparse.ArgumentParser()
@@ -25,5 +25,5 @@ parser.add_argument('--eval', action='store_true')
 parser.add_argument('--fuzz_energy', type=int, default=10)
 parser.add_argument('--num_model_mutants', type=int, default=100)
 parser.add_argument('--num_input_mutants', type=int, default=200)
-parser.add_argument('--task', type=str, default='classify', choices=tasks)
+parser.add_argument('--task', type=str, default='clf', choices=tasks)
 
