@@ -3,10 +3,12 @@ import random
 
 import torch
 from torch import nn
+from tqdm import tqdm
 
 from arguments import parser
 from model import load_model
-from utils import guard_folder, rsetattr, save_object
+from dataset import load_dataloader
+from utils import check_file_exists, guard_folder, rsetattr, save_object
 
 
 def get_tensor_mask(tensor, seed=None, ratio=0.1):
@@ -39,14 +41,14 @@ class InverseActivate(nn.Module):
         return x
 
 
-def NEB_hack(tensor, fill=0):
-    mask = get_tensor_mask(tensor)
+def NEB_hack(tensor, fill=0, **kwargs):
+    mask = get_tensor_mask(tensor, **kwargs)
     tensor.masked_fill_(mask, fill)
     return tensor
 
 
-def GF_hack(tensor, std=0.1):
-    mask = get_tensor_mask(tensor)
+def GF_hack(tensor, std=0.1, **kwargs):
+    mask = get_tensor_mask(tensor, **kwargs)
     gauss = torch.normal(0, std, tensor.size())
     if isinstance(tensor, nn.parameter.Parameter):
         tensor.copy_(torch.where(mask, tensor + gauss, tensor))
@@ -60,6 +62,12 @@ def WS_hack(tensor, ratio=0.1):
     mask_indices = mask.nonzero(as_tuple=True)
     shuffle = torch.randperm(mask_indices[0].size(0))
     tensor[mask_indices] = tensor[mask_indices][shuffle]
+    return tensor
+
+
+def PCR_hack(tensor, **kwargs):
+    mask = get_tensor_mask(tensor, **kwargs)
+    tensor = torch.where(mask, 1 - tensor, tensor)
     return tensor
 
 
@@ -98,15 +106,47 @@ def generate_random_model_mutants(ctx, model):
         mutant_idx += 1
 
 
+def generate_random_sample_mutants(ctx, batch_inputs):
+    mutate_ops = ['PGF', 'PS', 'CPW', 'CPB', 'PCR']
+    assert(ctx.num_sample_mutants % len(mutate_ops) == 0)
+
+    for sample in tqdm(batch_inputs, desc='Samples', leave=False):
+        sample_mutants = [sample]  # 0 stays the original sample
+        for _ in range(ctx.num_sample_mutants):
+            op = random.choice(mutate_ops)
+            if op == 'PGF':
+                mutant = GF_hack(sample, std=0.8, ratio=0.05)
+            elif op == 'PS':
+                mutant = WS_hack(sample, ratio=0.05)
+            elif op == 'CPW':
+                mutant = NEB_hack(sample, fill=0, ratio=0.05)
+            elif op == 'CPB':
+                mutant = NEB_hack(sample, fill=1, ratio=0.05)
+            elif op == 'PCR':
+                mutant = PCR_hack(sample, ratio=0.05)
+            else:
+                raise ValueError('Invalid operator')
+            sample_mutants.append(mutant)
+        sample_with_mutants = torch.stack(sample_mutants)
+
+        yield sample_with_mutants
+
+
 def main():
     ctx = parser.parse_args()
     print(ctx)
-    guard_folder(ctx, folder='model_mutants')
+    guard_folder(ctx, folder=['model_mutants', 'sample_mutants'])
 
-    model = load_model(ctx, pretrained=True)
-    model.eval()
-    generate_random_model_mutants(ctx, model)
+    last_mutant_name = f'model_mutants/random_mutant.{ctx.num_model_mutants-1}.pt'
+    if not check_file_exists(ctx, last_mutant_name):
+        model = load_model(ctx, pretrained=True)
+        model.eval()
+        generate_random_model_mutants(ctx, model)
 
+    last_mutant_name = f'sample_mutants/random_mutant.{ctx.num_sample_mutants-1}.pt'
+    if not check_file_exists(ctx, last_mutant_name):
+        valloader = load_dataloader(ctx, split='val')
+        generate_random_sample_mutants(ctx, valloader)
 
 if __name__ == '__main__':
     main()

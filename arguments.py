@@ -24,6 +24,6 @@ parser.add_argument('--resume', action='store_true')
 parser.add_argument('--eval', action='store_true')
 parser.add_argument('--fuzz_energy', type=int, default=10)
 parser.add_argument('--num_model_mutants', type=int, default=100)
-parser.add_argument('--num_input_mutants', type=int, default=200)
+parser.add_argument('--num_sample_mutants', type=int, default=200)
 parser.add_argument('--task', type=str, default='clf', choices=tasks)
 

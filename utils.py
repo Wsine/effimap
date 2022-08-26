@@ -107,6 +107,11 @@ def save_object(ctx, obj, filename, **kwargs):
             raise NotImplemented
 
 
+def check_file_exists(ctx, filename):
+    filepath = os.path.join(get_output_path(ctx), filename)
+    return os.path.exists(filepath)
+
+
 def load_pickle_object(ctx, filename, **kwargs):
     filepath = os.path.join(get_output_path(ctx), filename)
     if not os.path.exists(filepath):

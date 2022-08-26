@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 from sklearn.ensemble import RandomForestRegressor
 
@@ -7,7 +8,7 @@ from arguments import parser
 from metric import post_predict, predicates
 from model import load_model
 from dataset import load_dataloader
-from generate_mutants import InverseActivate
+from generate_mutants import InverseActivate, generate_random_sample_mutants
 from utils import get_device, load_pickle_object, load_torch_object, save_object
 
 
@@ -48,7 +49,7 @@ def extract_mutant_predicates(ctx, model, valloader, device):
     return pred_predicates
 
 
-def train_ranker(ctx, valloader, pred_predicates):
+def extract_pmt_sample_features(ctx, valloader):
     sample_features = []
     for inputs, _ in valloader:
         f1to5 = [ctx.num_model_mutants, 1, ctx.num_model_mutants, 4, 0]
@@ -61,9 +62,56 @@ def train_ranker(ctx, valloader, pred_predicates):
 
         sample_features.append(batch_features)
     sample_features = np.concatenate(sample_features)
-    print('features shape:', sample_features.shape)
 
+    return sample_features
+
+
+def compute_prima_sample_feature(ctx, inputs_preds):
+    if ctx.task == 'clf':
+        pred_labels, pred_probs = inputs_preds
+        sample_label, mutant_labels = pred_labels[0], pred_labels[1:]
+        sample_prob, mutant_probs = pred_probs[0], pred_probs[1:]
+
+        f1a = mutant_labels.ne(sample_label).sum()
+        f1b = mutant_labels.unique().size(0) - 1
+        _, cnt = mutant_labels.unique(return_counts=True)
+        f1c = cnt[cnt.topk(2).indices[-1]] if cnt.size(0) > 1 else cnt[0]
+        dist = F.cosine_similarity(
+            mutant_probs, sample_prob.repeat(mutant_probs.size(0), 1))
+        f2a = dist.mean()
+        f2b = [
+            torch.logical_and(dist > s, dist < s + 0.1).sum()
+            for s in torch.linspace(0, 1, steps=10)
+        ]
+        f2c = (mutant_probs[:, sample_label] - sample_prob[sample_label]).mean()
+        feature = torch.Tensor([f1a, f1b, f1c, f2a, *f2b, f2c])
+    else:
+        raise NotImplemented
+    return feature
+
+
+@torch.no_grad()
+def extract_prima_sample_features(ctx, model, valloader, device):
+    sample_features = []
+
+    for inputs, _ in tqdm(valloader, desc='Batch'):
+        for sample_with_mutants in generate_random_sample_mutants(ctx, inputs):
+            inputs = sample_with_mutants.to(device)
+            inputs_preds = post_predict(ctx, model(inputs))
+            feature = compute_prima_sample_feature(ctx, inputs_preds)
+            feature = feature.cpu()
+            sample_features.append(feature)
+
+    sample_features = torch.stack(sample_features).numpy()
+    save_object(ctx, sample_features, f'prima_features.{ctx.cross_model}.pkl')
+
+    return sample_features
+
+
+def train_ranker(ctx, sample_features, pred_predicates):
     mutation_scores = np.sum(pred_predicates, axis=1) / ctx.num_model_mutants
+
+    print('features shape:', sample_features.shape)
     print('targets shape:', mutation_scores.shape)
 
     assert(len(sample_features) == len(mutation_scores))
@@ -73,26 +121,36 @@ def train_ranker(ctx, valloader, pred_predicates):
 
     regressor = RandomForestRegressor()
     regressor.fit(sample_features, mutation_scores)
-    save_object(ctx, regressor, f'pmt_ranker.{ctx.cross_model}.pkl')
+
+    save_name = f'pmt_ranker.{ctx.cross_model}.{ctx.feature_source}.pkl'
+    save_object(ctx, regressor, save_name)
 
     return regressor
 
 
 def main():
     parser.add_argument('cross_model', type=str, choices=('resnet56', 'vgg13'))
+    parser.add_argument('feature_source', type=str, choices=('pmt', 'prima'))
     ctx = parser.parse_args()
     print(ctx)
 
+    device = get_device(ctx)
     valloader = load_dataloader(ctx, split='val')
+    model = load_model(ctx, ctx.cross_model, pretrained=True).to(device)
+    model.eval()
 
     pred_predicates = load_pickle_object(ctx, f'pmt_predicates.{ctx.cross_model}.pkl')
     if pred_predicates is None:
-        device = get_device(ctx)
-        model = load_model(ctx, ctx.cross_model, pretrained=True).to(device)
-        model.eval()
         pred_predicates = extract_mutant_predicates(ctx, model, valloader, device)
 
-    train_ranker(ctx, valloader, pred_predicates)
+    if ctx.feature_source == 'pmt':
+        sample_features = extract_pmt_sample_features(ctx, valloader)
+    else:
+        sample_features = load_pickle_object(ctx, f'prima_features.{ctx.cross_model}.pkl')
+        if sample_features is None:
+            sample_features = extract_prima_sample_features(ctx, model, valloader, device)
+
+    train_ranker(ctx, sample_features, pred_predicates)
 
 
 if __name__ == '__main__':

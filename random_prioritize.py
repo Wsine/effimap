@@ -4,7 +4,7 @@ from tqdm import tqdm
 from arguments import parser
 from model import load_model
 from dataset import load_dataloader
-from metric import correctness
+from metric import post_predict, correctness
 from utils import get_device, guard_folder, save_object
 
 
@@ -18,9 +18,8 @@ def prioritize_randomly(ctx):
     oracle = []
     for inputs, targets in tqdm(testloader, desc='Random'):
         inputs, targets = inputs.to(device), targets.to(device)
-        outputs = model(inputs)
-        _, predicted = outputs.max(1)
-        incorrect = correctness(ctx, predicted, targets, invert=True)
+        inputs_preds = post_predict(ctx, model(inputs))
+        incorrect = correctness(ctx, inputs_preds, targets, invert=True)
         oracle.append(incorrect)
     oracle = torch.cat(oracle)
 

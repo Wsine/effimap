@@ -1,9 +1,13 @@
-def correctness(ctx, a, b, invert=False):
+import torch.nn.functional as F
+
+
+def correctness(ctx, preds, oracles, invert=False):
     """
     return: a list containing [1 if correct else 0] unless invert
     """
     if ctx.task == 'clf':
-        correct = a.eq(b).int().cpu()
+        labels, _ = preds
+        correct = labels.eq(oracles).int().cpu()
     else:
         raise NotImplemented
 
@@ -14,18 +18,21 @@ def correctness(ctx, a, b, invert=False):
 
 def post_predict(ctx, outputs):
     if ctx.task == 'clf':
-        _, predicted = outputs.max(1)
+        _, labels = outputs.max(1)
+        probs = F.softmax(outputs, dim=1)
+        return (labels, probs)
     else:
         raise NotImplemented
-    return predicted
 
 
-def predicates(ctx, a, b):
+def predicates(ctx, model_preds, mutant_preds):
     """
     return: a list containing [1 if inconsistent else 0]
     """
     if ctx.task == 'clf':
-        pdc = a.ne(b).int().cpu()
+        model_labels, _ = model_preds
+        mutant_labels, _ = mutant_preds
+        pdc = model_labels.ne(mutant_labels).int().cpu()
     else:
         raise NotImplemented
     return pdc
