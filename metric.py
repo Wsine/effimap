@@ -36,3 +36,12 @@ def predicates(ctx, model_preds, mutant_preds):
     else:
         raise NotImplemented
     return pdc
+
+
+def prediction_error(ctx, preds, targets):
+    if ctx.task == 'clf':
+        labels, _ = preds
+        return labels.ne(targets).int().cpu()
+    else:
+        raise NotImplemented
+
