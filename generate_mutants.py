@@ -7,7 +7,6 @@ from tqdm import tqdm
 
 from arguments import parser
 from model import load_model
-from dataset import load_dataloader
 from utils import check_file_exists, guard_folder, rsetattr, save_object
 
 
@@ -135,18 +134,15 @@ def generate_random_sample_mutants(ctx, batch_inputs):
 def main():
     ctx = parser.parse_args()
     print(ctx)
-    guard_folder(ctx, folder=['model_mutants', 'sample_mutants'])
+    guard_folder(ctx, folder='model_mutants')
+
+    model = load_model(ctx, pretrained=True)
+    model.eval()
 
     last_mutant_name = f'model_mutants/random_mutant.{ctx.num_model_mutants-1}.pt'
     if not check_file_exists(ctx, last_mutant_name):
-        model = load_model(ctx, pretrained=True)
-        model.eval()
         generate_random_model_mutants(ctx, model)
 
-    last_mutant_name = f'sample_mutants/random_mutant.{ctx.num_sample_mutants-1}.pt'
-    if not check_file_exists(ctx, last_mutant_name):
-        valloader = load_dataloader(ctx, split='val')
-        generate_random_sample_mutants(ctx, valloader)
 
 if __name__ == '__main__':
     main()

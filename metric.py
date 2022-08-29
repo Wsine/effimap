@@ -1,13 +1,13 @@
 import torch.nn.functional as F
 
 
-def correctness(ctx, preds, oracles, invert=False):
+def correctness(ctx, preds, targets, invert=False):
     """
     return: a list containing [1 if correct else 0] unless invert
     """
     if ctx.task == 'clf':
         labels, _ = preds
-        correct = labels.eq(oracles).int().cpu()
+        correct = labels.eq(targets).int().cpu()
     else:
         raise NotImplemented
 
