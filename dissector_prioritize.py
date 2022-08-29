@@ -71,7 +71,7 @@ def prioritize_with_dissector(ctx):
         'worst': oracle.sort(descending=False).values.numpy()
     }
 
-    save_object(ctx, result, 'ds_list.pkl')
+    save_object(ctx, result, 'dissector_list.pkl')
 
 
 def main():

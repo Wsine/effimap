@@ -9,7 +9,7 @@ from arguments import parser
 from utils import *
 
 
-def train_and_validate(ctx, model, dataloader, device):
+def train_and_validate(_, model, dataloader, device):
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=100)

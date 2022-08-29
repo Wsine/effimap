@@ -39,7 +39,7 @@ def measure_rauc(ranked_lists):
 
 
 def main():
-    parser.add_argument('method', type=str, choices=('random', 'pmt', 'gini', 'ds'))
+    parser.add_argument('method', type=str, choices=('random', 'pmt', 'gini', 'dissector'))
     ctx = parser.parse_args()
     print(ctx)
     ranked_lists = load_pickle_object(ctx, f'{ctx.method}_list.pkl')
