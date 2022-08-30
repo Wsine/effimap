@@ -7,17 +7,17 @@ from arguments import parser
 from utils import *
 
 
-def train(model, trainloader, ctximizer, criterion, device, desc='Train'):
+def train(model, trainloader, optimizer, criterion, device, desc='Train'):
     model.train()
     train_loss, correct, total = 0, 0, 0
     with tqdm(trainloader, desc=desc) as tepoch:
         for batch_idx, (inputs, targets) in enumerate(tepoch):
             inputs, targets = inputs.to(device), targets.to(device)
-            ctximizer.zero_grad()
+            optimizer.zero_grad()
             outputs = model(inputs)
             loss = criterion(outputs, targets)
             loss.backward()
-            ctximizer.step()
+            optimizer.step()
 
             train_loss += loss.item()
             _, predicted = outputs.max(1)
@@ -71,6 +71,7 @@ def main():
     best_acc = 0
     if ctx.resume:
         ckp = load_torch_object(ctx, 'model_pretrained.pt')
+        assert(ckp is not None)
         model.load_state_dict(ckp['net'])
         optimizer.load_state_dict(ckp['optim'])
         scheduler.load_state_dict(ckp['sched'])

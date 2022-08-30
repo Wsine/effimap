@@ -5,7 +5,6 @@ import random
 import torch
 from torch import nn
 import torch.utils.data
-from tqdm import tqdm
 
 from arguments import parser
 from dataset import load_dataloader
@@ -151,12 +150,12 @@ def find_killers(ctx, model, mutant, incloader, device):
 def fuzz_model_mutants(ctx, model, valloader, device):
     perf0, correct_indicators = evaluate(ctx, model, valloader, device)
 
-    incorrect_indice = correct_indicators.nonzero().flatten().tolist()
+    incorrect_indice = correct_indicators.ne(1).nonzero().flatten().tolist()
     incloader = torch.utils.data.DataLoader(
         torch.utils.data.Subset(valloader.dataset, incorrect_indice),
         batch_size=ctx.batch_size, shuffle=False, num_workers=8
     )
-    correct_indice = correct_indicators.ne(1).nonzero().flatten().tolist()
+    correct_indice = correct_indicators.nonzero().flatten().tolist()
     corloader = torch.utils.data.DataLoader(
         torch.utils.data.Subset(valloader.dataset, correct_indice),
         batch_size=ctx.batch_size, shuffle=False, num_workers=8
