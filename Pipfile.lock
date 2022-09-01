@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "4fa4d3e4d9d47537912232967a69535faabb92a4d156e83cbeda11060b80a13d"
+            "sha256": "8b4b0733aeb3c1390b05068ec8cf250aa8dbd8a0875b538c9f65a941270c18f9"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -219,11 +219,11 @@
                 "http"
             ],
             "hashes": [
-                "sha256:36c5a8e7c4fc20cf32ef6934ac0a122accc8a593ddc8478d30c3ca4dbbd95500",
-                "sha256:7f9fb19d811b027b97c4636c6073eb53bc4cbee2d3c4b33fa88b9f26906fd7d7"
+                "sha256:85f46cfe0750b96f8c18cb7cdc0edb9ab7fb7ab0dbc7e38cb400039fc4fb426c",
+                "sha256:d1b4850f659bbb63366f3aeee45c4f638ef68847692a614a71e834f6837947fc"
             ],
             "markers": "python_version >= '3.7'",
-            "version": "==2022.7.1"
+            "version": "==2022.8.0"
         },
         "google-auth": {
             "hashes": [
@@ -837,6 +837,13 @@
             "index": "pypi",
             "version": "==1.12.1"
         },
+        "torchattacks": {
+            "hashes": [
+                "sha256:cdebadefd6b8ddcae1510efaee3d2b5a7f3f7f92abca47b40059d01d1a5240d9"
+            ],
+            "index": "pypi",
+            "version": "==3.2.7"
+        },
         "torchmetrics": {
             "hashes": [
                 "sha256:3babb9e75d223512621af69a84eabf52b621a4f768b83f86701d66d09abed80b",
@@ -844,6 +851,14 @@
             ],
             "index": "pypi",
             "version": "==0.9.3"
+        },
+        "torchsummary": {
+            "hashes": [
+                "sha256:10f41d1743fb918f83293f13183f532ab1bb8f6639a1b89e5f8592ec1919a976",
+                "sha256:981bf689e22e0cf7f95c746002f20a24ad26aa6b9d861134a14bc6ce92230590"
+            ],
+            "index": "pypi",
+            "version": "==1.5.1"
         },
         "torchvision": {
             "hashes": [

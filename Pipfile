@@ -11,6 +11,8 @@ sklearn = "*"
 pytorch-lightning = "*"
 torchmetrics = "*"
 xgboost = "*"
+torchsummary = "*"
+torchattacks = "*"
 
 [dev-packages]
 
