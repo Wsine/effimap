@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you conduct research with this code repository, please cite it as below."
+authors:
+- family-names: "Wei"
+  given-names: "Zhengyuan"
+  orcid: "https://orcid.org/0000-0001-5966-1338"
+title: "Implementation of EffiMAP"
+version: 1.0.0
+date-released: 2022-11-03
+url: "https://github.com/Wsine/effimap"
