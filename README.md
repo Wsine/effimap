@@ -6,7 +6,21 @@ For more details, please refer to the following publication.
 
 ## Publication
 
-Accepted. Under release.
+Z. Wei, H. Wang, I. Ashraf and W. K. Chan, "Predictive Mutation Analysis of Test Case Prioritization for Deep Neural Networks," 2022 IEEE 22nd International Conference on Software Quality, Reliability and Security (QRS), Guangzhou, China, 2022, pp. 682-693, doi: 10.1109/QRS57517.2022.00074. keywords: {Deep learning;Analytical models;Computational modeling;Neural networks;Software quality;Predictive models;Computational efficiency;Test case prioritization;mutation analysis;testing},
+
+```
+@INPROCEEDINGS{10062402,
+  author={Wei, Zhengyuan and Wang, Haipeng and Ashraf, Imran and Chan, W.K.},
+  booktitle={2022 IEEE 22nd International Conference on Software Quality, Reliability and Security (QRS)}, 
+  title={Predictive Mutation Analysis of Test Case Prioritization for Deep Neural Networks}, 
+  year={2022},
+  volume={},
+  number={},
+  pages={682-693},
+  keywords={Deep learning;Analytical models;Computational modeling;Neural networks;Software quality;Predictive models;Computational efficiency;Test case prioritization;mutation analysis;testing},
+  doi={10.1109/QRS57517.2022.00074}
+}
+```
 
 ## Preparation
 
